@@ -6,6 +6,9 @@ Two kinds of light are created per controller:
   built-in animations exposed as Home Assistant effects, and
 * one per **zone** (front upper, rear lower, ...), which behave like WLED
   segments and can each show their own colour and effect.
+
+These are RGBW fixtures: the dedicated white channel is separate from the
+red, green and blue ones.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ from typing import Any
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_EFFECT,
-    ATTR_RGB_COLOR,
+    ATTR_RGBW_COLOR,
     ColorMode,
     LightEntity,
     LightEntityFeature,
@@ -24,21 +27,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import GemstoneConfigEntry
+from .color_util import pack, unpack
 from .const import EFFECT_LIST, EFFECT_SOLID
 from .coordinator import GemstoneCoordinator
 from .entity import GemstoneEntity
-
-
-def _to_rgb(value: int | None) -> tuple[int, int, int] | None:
-    """Convert a 0xRRGGBB integer to an RGB tuple."""
-    if value is None:
-        return None
-    return ((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF)
-
-
-def _to_int(rgb: tuple[int, int, int]) -> int:
-    """Convert an RGB tuple to a 0xRRGGBB integer."""
-    return (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
 
 
 async def async_setup_entry(
@@ -58,25 +50,27 @@ async def async_setup_entry(
 
 
 class _GemstoneBaseLight(GemstoneEntity, LightEntity):
-    """Shared colour/effect behaviour."""
+    """Shared colour and effect behaviour."""
 
-    _attr_supported_color_modes = {ColorMode.RGB}
-    _attr_color_mode = ColorMode.RGB
+    _attr_supported_color_modes = {ColorMode.RGBW}
+    _attr_color_mode = ColorMode.RGBW
     _attr_supported_features = LightEntityFeature.EFFECT
     _attr_effect_list = EFFECT_LIST
 
     def __init__(self, coordinator: GemstoneCoordinator, device_id: str) -> None:
         """Initialise shared state."""
         super().__init__(coordinator, device_id)
-        self._last_rgb: tuple[int, int, int] = (255, 255, 255)
+        self._last_rgbw: tuple[int, int, int, int] = (255, 255, 255, 0)
 
-    def _resolve(self, kwargs: dict[str, Any]) -> tuple[tuple[int, int, int], int, str]:
+    def _resolve(
+        self, kwargs: dict[str, Any]
+    ) -> tuple[tuple[int, int, int, int], int, str]:
         """Work out the colour, brightness and effect a command should apply."""
-        rgb = kwargs.get(ATTR_RGB_COLOR) or self.rgb_color or self._last_rgb
-        self._last_rgb = tuple(rgb)
+        rgbw = kwargs.get(ATTR_RGBW_COLOR) or self.rgbw_color or self._last_rgbw
+        self._last_rgbw = tuple(rgbw)
         brightness = kwargs.get(ATTR_BRIGHTNESS) or self.brightness or 255
         effect = kwargs.get(ATTR_EFFECT) or self.effect or EFFECT_SOLID
-        return tuple(rgb), int(brightness), effect
+        return tuple(rgbw), int(brightness), effect
 
 
 class GemstoneLight(_GemstoneBaseLight):
@@ -99,71 +93,72 @@ class GemstoneLight(_GemstoneBaseLight):
         return self._state.get("pattern") or None
 
     @property
-    def rgb_color(self) -> tuple[int, int, int] | None:
-        """Return the colour, normalised to full brightness."""
+    def _color_value(self) -> int | None:
+        """Return the packed colour from either transport's field."""
+        if isinstance(color_b := self._state.get("colorB"), dict):
+            return color_b.get("value")
+        return self._state.get("color")
+
+    @property
+    def rgbw_color(self) -> tuple[int, int, int, int] | None:
+        """Return the current colour."""
         if pattern := self._pattern:
             colors = pattern.get("colors") or []
-            return _to_rgb(colors[0]) if colors else None
-        rgb = _to_rgb(self._state.get("color"))
-        if rgb is None:
-            return None
-        peak = max(rgb)
-        if peak == 0:
-            return (0, 0, 0)
-        return tuple(min(255, round(c * 255 / peak)) for c in rgb)
+            return unpack(colors[0]) if colors else None
+        return unpack(self._color_value)
 
     @property
     def brightness(self) -> int | None:
-        """Return brightness, from the pattern or the colour's peak channel."""
+        """Return brightness, which the controller keeps separate."""
+        if isinstance(color_b := self._state.get("colorB"), dict):
+            return color_b.get("brightness")
         if pattern := self._pattern:
             return pattern.get("brightness")
-        rgb = _to_rgb(self._state.get("color"))
-        return max(rgb) if rgb else None
+        if (design := self._state.get("architectural")) and isinstance(design, dict):
+            return design.get("brightness")
+        return 255 if self.is_on else None
 
     @property
     def effect(self) -> str | None:
         """Return the active animation, or Solid for a plain colour."""
         if pattern := self._pattern:
             return pattern.get("animation") or EFFECT_SOLID
-        if self._state.get("color") is not None:
+        if self._color_value is not None:
             return EFFECT_SOLID
         return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose the design name when one is playing."""
+        """Expose transport and what design is playing."""
         design = self._state.get("architectural") or {}
-        return {"playing_design": design.get("name"), "speed": self.coordinator.speed(self._device_id)}
+        return {
+            "playing_design": design.get("name"),
+            "speed": self.coordinator.speed(self._device_id),
+            "control": "local" if self.coordinator.is_local(self._device_id) else "cloud",
+        }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on, optionally setting colour, brightness and effect."""
         if not kwargs:
-            await self.coordinator.async_apply(
-                self.coordinator.api.async_set_power(self._device_id, True)
-            )
+            await self.coordinator.async_set_power(self._device_id, True)
             return
 
-        rgb, brightness, effect = self._resolve(kwargs)
+        rgbw, brightness, effect = self._resolve(kwargs)
 
         if effect == EFFECT_SOLID:
-            scaled = tuple(round(c * brightness / 255) for c in rgb)
-            await self.coordinator.async_apply(
-                self.coordinator.api.async_play_color(self._device_id, _to_int(scaled))
+            await self.coordinator.async_play_color(
+                self._device_id, pack(*rgbw), brightness
             )
             return
 
         pattern = self.coordinator.build_pattern(
-            self._device_id, [_to_int(rgb)], effect, brightness=brightness
+            self._device_id, [pack(*rgbw)], effect, brightness=brightness
         )
-        await self.coordinator.async_apply(
-            self.coordinator.api.async_play_pattern(self._device_id, pattern)
-        )
+        await self.coordinator.async_play_pattern(self._device_id, pattern)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the lights off."""
-        await self.coordinator.async_apply(
-            self.coordinator.api.async_set_power(self._device_id, False)
-        )
+        await self.coordinator.async_set_power(self._device_id, False)
 
 
 class GemstoneZoneLight(_GemstoneBaseLight):
@@ -188,11 +183,10 @@ class GemstoneZoneLight(_GemstoneBaseLight):
         return bool(self._state.get("onState")) and self._zone_pattern is not None
 
     @property
-    def rgb_color(self) -> tuple[int, int, int] | None:
+    def rgbw_color(self) -> tuple[int, int, int, int] | None:
         """Return this zone's first colour."""
-        pattern = self._zone_pattern or {}
-        colors = pattern.get("colors") or []
-        return _to_rgb(colors[0]) if colors else None
+        colors = (self._zone_pattern or {}).get("colors") or []
+        return unpack(colors[0]) if colors else None
 
     @property
     def brightness(self) -> int | None:
@@ -208,10 +202,10 @@ class GemstoneZoneLight(_GemstoneBaseLight):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Apply a colour and effect to this zone only."""
-        rgb, brightness, effect = self._resolve(kwargs)
+        rgbw, brightness, effect = self._resolve(kwargs)
         pattern = self.coordinator.build_pattern(
             self._device_id,
-            [_to_int(rgb)],
+            [pack(*rgbw)],
             "motionless" if effect == EFFECT_SOLID else effect,
             name=self._attr_name or "Zone",
             brightness=brightness,

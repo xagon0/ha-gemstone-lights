@@ -1,4 +1,10 @@
-"""Data coordinator for Gemstone Lights."""
+"""Data coordinator for Gemstone Lights.
+
+State and commands prefer the controller's local HTTP API and fall back to
+Gemstone's cloud. The cloud is still required for things the controller does
+not serve: account discovery, saved designs, zone definitions and the pattern
+catalog.
+"""
 
 from __future__ import annotations
 
@@ -11,35 +17,41 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .const import (
     CATALOG_REFRESH_INTERVAL,
-    DEFAULT_SPEED,
-    EFFECT_SOLID,
     DATA_DESIGNS,
     DATA_DEVICES,
     DATA_INFO,
+    DATA_LOCAL,
     DATA_PATTERNS,
+    DATA_SETTINGS,
     DATA_STATE,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SPEED,
     DOMAIN,
+    EFFECT_SOLID,
 )
+from .local_api import GemstoneLocalApi, GemstoneLocalError
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Poll controller state and cache the design/pattern catalog.
-
-    Live state is cheap and polled every update. Saved designs and patterns
-    change rarely, so they are refreshed on a slower cadence.
-    """
+    """Poll controller state and cache the design/pattern catalog."""
 
     def __init__(
-        self, hass: HomeAssistant, entry: ConfigEntry, api: GemstoneApi
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        api: GemstoneApi,
+        *,
+        host_override: str | None = None,
+        prefer_local: bool = True,
     ) -> None:
         """Initialise the coordinator."""
         super().__init__(
@@ -50,13 +62,21 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
         )
         self.api = api
+        self._host_override = host_override
+        self._prefer_local = prefer_local
+
         self._device_ids: list[str] = []
         self._designs: dict[str, list[dict[str, Any]]] = {}
         self._patterns: list[dict[str, Any]] = []
         self._zones: dict[str, list[dict[str, Any]]] = {}
         self._catalog_refreshed: datetime | None = None
-        # Speed is not reported by the cloud, so remember what was asked for.
         self._speeds: dict[str, int] = {}
+
+        self._local: dict[str, GemstoneLocalApi] = {}
+        self._local_ok: dict[str, bool] = {}
+        self._settings: dict[str, dict[str, Any]] = {}
+
+    # -- basics -------------------------------------------------------------
 
     @property
     def device_ids(self) -> list[str]:
@@ -66,6 +86,57 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def zones(self, device_id: str) -> list[dict[str, Any]]:
         """Return the zones configured on a controller."""
         return self._zones.get(device_id, [])
+
+    def device_info_raw(self, device_id: str) -> dict[str, Any]:
+        """Return the raw controller record from the cloud."""
+        return (self.data or {}).get(DATA_DEVICES, {}).get(device_id, {}).get(
+            DATA_INFO, {}
+        )
+
+    def device_state(self, device_id: str) -> dict[str, Any]:
+        """Return the controller's currently-playing state."""
+        return (self.data or {}).get(DATA_DEVICES, {}).get(device_id, {}).get(
+            DATA_STATE, {}
+        )
+
+    def designs(self, device_id: str) -> list[dict[str, Any]]:
+        """Return saved designs for a controller."""
+        return (self.data or {}).get(DATA_DESIGNS, {}).get(device_id, [])
+
+    def patterns(self) -> list[dict[str, Any]]:
+        """Return the account's patterns."""
+        return (self.data or {}).get(DATA_PATTERNS, [])
+
+    def settings(self, device_id: str) -> dict[str, Any]:
+        """Return hub settings read locally (empty when cloud-only)."""
+        return self._settings.get(device_id, {})
+
+    def is_local(self, device_id: str) -> bool:
+        """Return True when this controller is being driven over the LAN."""
+        return bool(self._local_ok.get(device_id))
+
+    def local_host(self, device_id: str) -> str | None:
+        """Return the controller's local address, if known."""
+        client = self._local.get(device_id)
+        return client.host if client else None
+
+    # -- transport ----------------------------------------------------------
+
+    def _local_client(self, device_id: str, info: dict[str, Any]) -> GemstoneLocalApi | None:
+        """Return (creating if needed) the LAN client for a controller."""
+        if not self._prefer_local:
+            return None
+        if device_id in self._local:
+            return self._local[device_id]
+
+        host = self._host_override or (info.get("hub") or {}).get("localIp")
+        if not host:
+            return None
+        client = GemstoneLocalApi(async_get_clientsession(self.hass), host)
+        self._local[device_id] = client
+        return client
+
+    # -- polling ------------------------------------------------------------
 
     async def _async_discover(self) -> list[dict[str, Any]]:
         """Find every controller across all homegroups on the account."""
@@ -78,7 +149,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return devices
 
     async def _async_refresh_catalog(self, device_ids: list[str]) -> None:
-        """Reload saved designs, zones and patterns."""
+        """Reload saved designs, zones and patterns (cloud only)."""
         for device_id in device_ids:
             try:
                 self._designs[device_id] = await self.api.async_get_designs(device_id)
@@ -110,6 +181,39 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._patterns = patterns
         self._catalog_refreshed = dt_util.utcnow()
 
+    async def _async_state_for(
+        self, device_id: str, info: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Read state locally when possible, otherwise from the cloud."""
+        client = self._local_client(device_id, info)
+        if client:
+            try:
+                state = await client.async_get_state()
+                if not self._local_ok.get(device_id):
+                    _LOGGER.info(
+                        "Gemstone %s: using local control at %s", device_id, client.host
+                    )
+                self._local_ok[device_id] = True
+                try:
+                    self._settings[device_id] = await client.async_get_settings()
+                except GemstoneLocalError:
+                    pass
+                return state
+            except GemstoneLocalError as err:
+                if self._local_ok.get(device_id) is not False:
+                    _LOGGER.warning(
+                        "Gemstone %s: local control unavailable (%s), using cloud",
+                        device_id,
+                        err,
+                    )
+                self._local_ok[device_id] = False
+
+        try:
+            return await self.api.async_get_state(device_id)
+        except GemstoneError as err:
+            _LOGGER.debug("State fetch failed for %s: %s", device_id, err)
+            return {}
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch controller state (and the catalog when due)."""
         try:
@@ -128,14 +232,11 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 device_id = device.get("id")
                 if not device_id:
                     continue
-                try:
-                    state = await self.api.async_get_state(device_id)
-                except GemstoneError as err:
-                    _LOGGER.debug("State fetch failed for %s: %s", device_id, err)
-                    state = {}
                 result[DATA_DEVICES][device_id] = {
                     DATA_INFO: device,
-                    DATA_STATE: state,
+                    DATA_STATE: await self._async_state_for(device_id, device),
+                    DATA_LOCAL: self.is_local(device_id),
+                    DATA_SETTINGS: self._settings.get(device_id, {}),
                 }
 
             result[DATA_DESIGNS] = self._designs
@@ -146,29 +247,6 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ConfigEntryAuthFailed(str(err)) from err
         except GemstoneError as err:
             raise UpdateFailed(str(err)) from err
-
-    # -- helpers used by entities ------------------------------------------
-
-    def device_info_raw(self, device_id: str) -> dict[str, Any]:
-        """Return the raw controller record."""
-        return (self.data or {}).get(DATA_DEVICES, {}).get(device_id, {}).get(
-            DATA_INFO, {}
-        )
-
-    def device_state(self, device_id: str) -> dict[str, Any]:
-        """Return the controller's currently-playing state."""
-        return (self.data or {}).get(DATA_DEVICES, {}).get(device_id, {}).get(
-            DATA_STATE, {}
-        )
-
-    def designs(self, device_id: str) -> list[dict[str, Any]]:
-        """Return saved designs for a controller."""
-        return (self.data or {}).get(DATA_DESIGNS, {}).get(device_id, [])
-
-    def patterns(self) -> list[dict[str, Any]]:
-        """Return the account's patterns."""
-        return (self.data or {}).get(DATA_PATTERNS, [])
-
 
     # -- pattern construction ----------------------------------------------
 
@@ -191,8 +269,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> dict[str, Any]:
         """Build a pattern payload the controller accepts.
 
-        The controller happily plays patterns that were never saved to the
-        account, which is what makes free-form effect selection possible.
+        The controller plays any well-formed pattern, saved or not, which is
+        what makes free-form effect selection possible.
         """
         return {
             "id": str(uuid.uuid4()),
@@ -205,10 +283,97 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "backgroundColor": 0,
         }
 
+    # -- commands (local first, cloud fallback) ----------------------------
+
+    async def _async_command(self, device_id: str, local_coro, cloud_coro) -> None:
+        """Run a command locally when possible, else via the cloud."""
+        if local_coro is not None and self.is_local(device_id):
+            try:
+                await local_coro()
+                await asyncio.sleep(0.5)
+                await self.async_request_refresh()
+                return
+            except GemstoneLocalError as err:
+                _LOGGER.warning(
+                    "Gemstone %s: local command failed (%s), retrying via cloud",
+                    device_id,
+                    err,
+                )
+                self._local_ok[device_id] = False
+
+        await cloud_coro()
+        await asyncio.sleep(2)
+        await self.async_request_refresh()
+
+    async def async_set_power(self, device_id: str, on: bool) -> None:
+        """Turn a controller on or off."""
+        client = self._local.get(device_id)
+        await self._async_command(
+            device_id,
+            (lambda: client.async_set_power(on)) if client else None,
+            lambda: self.api.async_set_power(device_id, on),
+        )
+
+    async def async_play_color(
+        self, device_id: str, packed: int, brightness: int
+    ) -> None:
+        """Show one solid colour.
+
+        Locally the controller takes brightness as its own field. The cloud
+        has no equivalent for solid colours, so brightness is folded into the
+        colour there.
+        """
+        client = self._local.get(device_id)
+
+        def _cloud() -> Any:
+            from .color_util import pack, unpack  # noqa: PLC0415
+
+            channels = unpack(packed) or (0, 0, 0, 0)
+            scaled = [round(c * brightness / 255) for c in channels]
+            return self.api.async_play_color(device_id, pack(*scaled))
+
+        await self._async_command(
+            device_id,
+            (
+                lambda: client.async_play(
+                    {
+                        "onState": True,
+                        "colorB": {"value": packed, "brightness": brightness},
+                    }
+                )
+            )
+            if client
+            else None,
+            _cloud,
+        )
+
+    async def async_play_pattern(self, device_id: str, pattern: dict[str, Any]) -> None:
+        """Play a pattern."""
+        client = self._local.get(device_id)
+        await self._async_command(
+            device_id,
+            (lambda: client.async_play({"onState": True, "pattern": pattern}))
+            if client
+            else None,
+            lambda: self.api.async_play_pattern(device_id, pattern),
+        )
+
+    async def async_play_design(self, device_id: str, design: dict[str, Any]) -> None:
+        """Play an architectural design."""
+        client = self._local.get(device_id)
+        payload = {**design, "preview": False}
+        await self._async_command(
+            device_id,
+            (lambda: client.async_play({"onState": True, "architectural": payload}))
+            if client
+            else None,
+            lambda: self.api.async_play_design(device_id, design),
+        )
+
     # -- per-zone (architectural) state -------------------------------------
 
     def zone_patterns(self, device_id: str) -> dict[str, dict[str, Any]]:
-        """Return the pattern currently applied to each zone, keyed by zone id."""
+        """Return the pattern applied to each zone, keyed by zone id."""
         design = self.device_state(device_id).get("architectural") or {}
         return {
             entry["zoneId"]: entry.get("pattern") or {}
@@ -219,10 +384,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_zone_pattern(
         self, device_id: str, zone_id: str, pattern: dict[str, Any] | None
     ) -> None:
-        """Set or clear one zone, preserving whatever the other zones show.
+        """Set or clear one zone, preserving what the other zones show.
 
-        The controller replaces the whole design on every call, so the full
-        picture has to be sent each time.
+        Every write replaces the whole design, so the full picture has to be
+        sent each time.
         """
         current = self.zone_patterns(device_id)
         if pattern is None:
@@ -231,25 +396,17 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             current[zone_id] = pattern
 
         if not current:
-            await self.async_apply(self.api.async_set_power(device_id, False))
+            await self.async_set_power(device_id, False)
             return
 
-        design = {
-            "id": str(uuid.uuid4()),
-            "name": "Home Assistant Zones",
-            "brightness": 255,
-            "zonePatterns": [
-                {"zoneId": zid, "pattern": pat} for zid, pat in current.items()
-            ],
-        }
-        await self.async_apply(self.api.async_play_design(device_id, design))
-
-    async def async_apply(self, coro) -> None:
-        """Run a control call then refresh state shortly after.
-
-        The cloud needs a moment to reflect a change, so this waits briefly
-        before asking for the new state.
-        """
-        await coro
-        await asyncio.sleep(2)
-        await self.async_request_refresh()
+        await self.async_play_design(
+            device_id,
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Home Assistant Zones",
+                "brightness": 255,
+                "zonePatterns": [
+                    {"zoneId": zid, "pattern": pat} for zid, pat in current.items()
+                ],
+            },
+        )

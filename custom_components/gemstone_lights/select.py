@@ -67,16 +67,12 @@ class GemstoneDesignSelect(GemstoneEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         """Play the chosen design."""
         if option == OPTION_NONE:
-            await self.coordinator.async_apply(
-                self.coordinator.api.async_set_power(self._device_id, False)
-            )
+            await self.coordinator.async_set_power(self._device_id, False)
             return
 
         for design in self.coordinator.designs(self._device_id):
             if design.get("name") == option:
-                await self.coordinator.async_apply(
-                    self.coordinator.api.async_play_design(self._device_id, design)
-                )
+                await self.coordinator.async_play_design(self._device_id, design)
                 return
 
     @property
@@ -117,16 +113,12 @@ class GemstonePatternSelect(GemstoneEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         """Play the chosen pattern."""
         if option == OPTION_NONE:
-            await self.coordinator.async_apply(
-                self.coordinator.api.async_set_power(self._device_id, False)
-            )
+            await self.coordinator.async_set_power(self._device_id, False)
             return
 
         for pattern in self.coordinator.patterns():
             if pattern.get("name") == option:
-                await self.coordinator.async_apply(
-                    self.coordinator.api.async_play_pattern(
-                        self._device_id, pattern["data"]
-                    )
+                await self.coordinator.async_play_pattern(
+                    self._device_id, pattern["data"]
                 )
                 return

@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import GemstoneConfigEntry
+from .color_util import unpack
 from .coordinator import GemstoneCoordinator
 from .entity import GemstoneEntity
 
@@ -47,8 +48,12 @@ class GemstoneNowPlaying(GemstoneEntity, SensorEntity):
             return design
         if pattern := (state.get("pattern") or {}).get("name"):
             return pattern
-        if (color := state.get("color")) is not None:
-            return f"#{color:06X}"
+        color = state.get("color")
+        if isinstance(color_b := state.get("colorB"), dict):
+            color = color_b.get("value")
+        if color is not None:
+            red, green, blue, white = unpack(color) or (0, 0, 0, 0)
+            return f"#{red:02X}{green:02X}{blue:02X}" + (f"+W{white}" if white else "")
         return "On"
 
     @property
@@ -57,12 +62,19 @@ class GemstoneNowPlaying(GemstoneEntity, SensorEntity):
         state = self._state
         info = self._info
         hub = info.get("hub") or {}
+        settings = self.coordinator.settings(self._device_id)
+        color = state.get("color")
+        if isinstance(color_b := state.get("colorB"), dict):
+            color = color_b.get("value")
         return {
             "on_state": state.get("onState"),
             "design": (state.get("architectural") or {}).get("name"),
             "pattern": (state.get("pattern") or {}).get("name"),
-            "color": state.get("color"),
-            "firmware": info.get("firmware"),
-            "outputs": hub.get("outputNames"),
-            "local_ip": hub.get("localIp"),
+            "color": color,
+            "control": "local" if self.coordinator.is_local(self._device_id) else "cloud",
+            "local_ip": self.coordinator.local_host(self._device_id) or hub.get("localIp"),
+            "firmware": settings.get("firmware") or info.get("firmware"),
+            "outputs": settings.get("pixelOutputNames") or hub.get("outputNames"),
+            "pixel_count": settings.get("pixelCount") or hub.get("pixelCount"),
+            "rgbw_sequence": settings.get("rgbwSequence") or hub.get("rgbwSequence"),
         }

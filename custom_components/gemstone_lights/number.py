@@ -58,6 +58,4 @@ class GemstoneSpeed(GemstoneEntity, NumberEntity):
         pattern: dict[str, Any] | None = self._state.get("pattern")
         if pattern:
             updated = {**pattern, "speed": int(value)}
-            await self.coordinator.async_apply(
-                self.coordinator.api.async_play_pattern(self._device_id, updated)
-            )
+            await self.coordinator.async_play_pattern(self._device_id, updated)

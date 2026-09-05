@@ -46,5 +46,17 @@
         "name": "Effect speed"
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Local control",
+        "description": "The controller can be driven directly over your network, which is faster and keeps working without internet. Enable \u201cAllow Local Commands\u201d in the Gemstone app first. The address is found automatically; set one only to override it.",
+        "data": {
+          "prefer_local": "Use local control when available",
+          "host": "Controller IP address (optional)"
+        }
+      }
+    }
   }
 }

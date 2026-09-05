@@ -63,3 +63,15 @@ EFFECT_LIST: Final = [EFFECT_SOLID, *ANIMATIONS]
 
 DEFAULT_SPEED: Final = 128
 DATA_ZONES: Final = "zones"
+
+# --- Local control ---------------------------------------------------------
+# The Hub2 serves an unauthenticated HTTP API on port 80 when "Allow Local
+# Commands" is enabled in the Gemstone app.
+CONF_HOST: Final = "host"
+CONF_PREFER_LOCAL: Final = "prefer_local"
+LOCAL_TIMEOUT: Final = 8
+LOCAL_MAX_PAYLOAD: Final = 15 * 1024
+# The vendor drivers tag their writes; the controller echoes this back.
+LOCAL_ORIGIN: Final = "control4"
+DATA_LOCAL: Final = "local"
+DATA_SETTINGS: Final = "settings"
