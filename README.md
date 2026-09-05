@@ -1,4 +1,4 @@
-<img src="brand/icon.png" width="96" align="right" alt="">
+<img src="custom_components/gemstone_lights/brand/icon.png" width="96" align="right" alt="">
 
 # Gemstone Lights for Home Assistant
 
