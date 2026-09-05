@@ -1,3 +1,5 @@
+<img src="brand/icon.png" width="96" align="right" alt="">
+
 # Gemstone Lights for Home Assistant
 
 A custom integration for [Gemstone Lights](https://www.gemstonelights.com/)
