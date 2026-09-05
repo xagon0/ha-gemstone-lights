@@ -13,6 +13,7 @@ red, green and blue ones.
 
 from __future__ import annotations
 
+import difflib
 from typing import Any
 
 import voluptuous as vol
@@ -35,6 +36,22 @@ from .color_util import pack, unpack
 from .const import EFFECT_LIST, EFFECT_SOLID
 from .coordinator import GemstoneCoordinator
 from .entity import GemstoneEntity
+
+
+def _suggest(wanted: str, names: list[str]) -> str:
+    """Return a short "did you mean" hint for a name that was not found.
+
+    Substring matches come first because they are usually what was meant;
+    close spellings fill any remaining places, so typos are caught too.
+    """
+    needle = wanted.casefold()
+    hits = [name for name in names if needle in name.casefold()][:5]
+    if len(hits) < 5:
+        for name in difflib.get_close_matches(wanted, names, n=5, cutoff=0.6):
+            if name not in hits:
+                hits.append(name)
+    hits = hits[:5]
+    return f" Did you mean: {', '.join(hits)}?" if hits else ""
 
 
 async def async_setup_entry(
@@ -200,15 +217,9 @@ class GemstoneLight(_GemstoneBaseLight):
         """Play a pattern from Gemstone's official library by name."""
         data = self.coordinator.find_library_pattern(pattern, folder)
         if data is None:
-            wanted = pattern.casefold()
-            near = [
-                name
-                for name in self.coordinator.library_pattern_names()
-                if wanted in name.casefold()
-            ][:5]
             raise HomeAssistantError(
                 f"No library pattern called '{pattern}'."
-                + (f" Did you mean: {', '.join(near)}?" if near else "")
+                + _suggest(pattern, self.coordinator.library_pattern_names())
             )
         await self.coordinator.async_play_pattern(self._device_id, data)
 
