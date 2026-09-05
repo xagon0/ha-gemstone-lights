@@ -69,6 +69,7 @@ DATA_ZONES: Final = "zones"
 # Commands" is enabled in the Gemstone app.
 CONF_HOST: Final = "host"
 CONF_PREFER_LOCAL: Final = "prefer_local"
+CONF_ENABLE_LOCAL: Final = "enable_local"
 LOCAL_TIMEOUT: Final = 8
 LOCAL_MAX_PAYLOAD: Final = 15 * 1024
 # The vendor drivers tag their writes; the controller echoes this back.

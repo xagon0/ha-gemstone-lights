@@ -299,6 +299,19 @@ class GemstoneApi:
             json_body={"pattern": pattern},
         )
 
+    async def async_set_local_enabled(self, device_id: str, enabled: bool) -> None:
+        """Turn the controller's "Allow Local Commands" switch on or off.
+
+        This is the same switch as Advanced Settings in the Gemstone app; the
+        controller opens or closes its HTTP port in response.
+        """
+        await self._request(
+            "PUT",
+            "/deviceControl/deviceSettings",
+            params={"deviceId": device_id},
+            json_body={"tcpEnabled": enabled},
+        )
+
     async def async_play_design(self, device_id: str, design: dict[str, Any]) -> None:
         """Play a saved architectural design (note: uses ``deviceId``)."""
         payload = {**design, "preview": False}

@@ -24,6 +24,7 @@ from homeassistant.util import dt as dt_util
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .const import (
     CATALOG_REFRESH_INTERVAL,
+    CONF_ENABLE_LOCAL,
     LOCAL_RETRY_BACKOFF,
     LOCAL_WRITE_GAP,
     DATA_DESIGNS,
@@ -54,6 +55,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         host_override: str | None = None,
         prefer_local: bool = True,
+        enable_local: bool = True,
     ) -> None:
         """Initialise the coordinator."""
         super().__init__(
@@ -66,6 +68,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.api = api
         self._host_override = host_override
         self._prefer_local = prefer_local
+        self._enable_local = enable_local
+        self._enable_attempted: set[str] = set()
 
         self._device_ids: list[str] = []
         self._designs: dict[str, list[dict[str, Any]]] = {}
@@ -147,7 +151,12 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Respect the app's own switch, unless an address was pinned by hand.
         if not self._host_override and hub.get("tcpEnabled") is False:
-            if self._local_ok.get(device_id) is not False:
+            if self._enable_local and device_id not in self._enable_attempted:
+                # The switch can be flipped from the cloud, so offer to do it
+                # rather than making the user go into the app.
+                self._enable_attempted.add(device_id)
+                self.hass.async_create_task(self._async_enable_local(device_id))
+            elif self._local_ok.get(device_id) is not False:
                 _LOGGER.info(
                     "Gemstone %s: 'Allow Local Commands' is off, using cloud",
                     device_id,
@@ -174,6 +183,22 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         client = GemstoneLocalApi(async_get_clientsession(self.hass), host)
         self._local[device_id] = client
         return client
+
+    async def _async_enable_local(self, device_id: str) -> None:
+        """Switch on the controller's local commands via the cloud."""
+        try:
+            await self.api.async_set_local_enabled(device_id, True)
+        except GemstoneError as err:
+            _LOGGER.warning(
+                "Gemstone %s: could not enable local control (%s); "
+                "turn on 'Allow Local Commands' in the Gemstone app",
+                device_id,
+                err,
+            )
+            return
+        _LOGGER.info(
+            "Gemstone %s: enabled local control on the controller", device_id
+        )
 
     # -- polling ------------------------------------------------------------
 

@@ -55,13 +55,15 @@ re-authenticate.
 
 ## Local control
 
-Turn on **Device Settings → Advanced Settings → Allow Local Commands** in the
-Gemstone app. Nothing else is needed.
+Nothing to set up. You sign in with your Gemstone account and that is it.
 
-You sign in with your Gemstone account as usual. The controller reports its own
-LAN address and whether local commands are enabled to Gemstone, so the
-integration reads both from your account and switches to local by itself, with
-no IP to type in. The *Now playing* sensor's `control` attribute shows which
+"Allow Local Commands" (Device Settings → Advanced Settings in the Gemstone
+app) is what opens the controller's HTTP port. That switch can also be set
+through the cloud, so if it is off the integration turns it on for you. Untick
+**Switch on local control on the controller** in the integration's options if
+you would rather set it yourself in the app. The controller reports its own LAN address and
+whether local commands are enabled to Gemstone, so the integration reads both
+from your account and switches to local by itself, with no IP to type in. The *Now playing* sensor's `control` attribute shows which
 path is in use.
 
 If the controller moves to a new address, the integration notices and follows
@@ -185,6 +187,11 @@ Two traps cost the most time:
 | PUT | `/deviceControl/play/color` | `deviceOrGroupId` | `{"color": 65280}` |
 | PUT | `/deviceControl/play/pattern` | `deviceOrGroupId` | `{"pattern": {...}}` |
 | PUT | `/deviceControl/play/architectural` | `deviceId` | `{"architectural": {...}}` |
+| PUT | `/deviceControl/deviceSettings` | `deviceId` | `{"tcpEnabled": true}` |
+
+`deviceSettings` also reports `localIp`, `pixelCount` and `tcpEnabled`. Setting
+`tcpEnabled` genuinely opens and closes the controller's local HTTP port, so
+local control can be switched on without touching the app.
 
 Patterns do not have to exist in the account: the controller will play any
 well-formed pattern object, which is what makes free-form effect selection
