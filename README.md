@@ -21,6 +21,10 @@ to Gemstone's cloud for the things only the cloud can answer.
 - **Effect speed** - a slider that also re-applies the running effect.
 - **Design select** - play any design saved in the Gemstone app.
 - **Pattern select** - play any pattern saved in your account's folders.
+- **The whole official library** - Gemstone publishes well over a thousand
+  patterns. Browsing them is split across two dropdowns, *Library folder* and
+  *Library pattern*, because no single list of that size is usable. Automations
+  can reach any of them directly with the `play_library_pattern` service.
 - **Now playing sensor** - what the controller is currently showing, plus
   firmware, output names and local IP as attributes.
 - Devices and zones are discovered automatically across every homegroup.
@@ -104,6 +108,29 @@ The controller silently ignores writes that arrive back to back: it answers
 `200` and keeps its previous state. The integration serialises writes and
 spaces them, which is why a burst of rapid commands settles a second or two
 later rather than being lost.
+
+## The pattern library
+
+Gemstone's official library is fetched from your account and refreshed daily:
+roughly 1,700 patterns across 68 folders, grouped into categories such as
+sports, holidays and everyday.
+
+Pick a folder in **Library folder**, then a pattern in **Library pattern**;
+choosing a folder does not change the lights. From an automation, skip the
+browsing:
+
+```yaml
+action: gemstone_lights.play_library_pattern
+target:
+  entity_id: light.your_controller
+data:
+  pattern: Happy New Year
+  folder: holidays / Chinese New Year   # optional
+```
+
+An unknown name fails with a list of near matches rather than silently doing
+nothing. Turn the library off in the integration's options if you do not want
+it loaded.
 
 ## Notes and limitations
 

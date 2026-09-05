@@ -299,6 +299,38 @@ class GemstoneApi:
             json_body={"pattern": pattern},
         )
 
+    async def async_get_library_folders(self) -> list[dict[str, Any]]:
+        """Return Gemstone's official pattern folders."""
+        return (
+            await self._request(
+                "GET",
+                "/downloads/folders/listGemstoneManaged",
+                params={"page": 1, "pageSize": 500},
+            )
+            or []
+        )
+
+    async def async_get_library_patterns(self) -> list[dict[str, Any]]:
+        """Return every pattern in Gemstone's official library.
+
+        The endpoint pages; a short page means the end.
+        """
+        page_size = 750
+        patterns: list[dict[str, Any]] = []
+        for page in range(1, 21):
+            batch = (
+                await self._request(
+                    "GET",
+                    "/downloads/folders/pattern/listGemstoneManaged",
+                    params={"page": page, "pageSize": page_size},
+                )
+                or []
+            )
+            patterns.extend(batch)
+            if len(batch) < page_size:
+                break
+        return patterns
+
     async def async_set_local_enabled(self, device_id: str, enabled: bool) -> None:
         """Turn the controller's "Allow Local Commands" switch on or off.
 

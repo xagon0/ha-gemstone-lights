@@ -34,6 +34,12 @@
       },
       "pattern": {
         "name": "Pattern"
+      },
+      "library_folder": {
+        "name": "Library folder"
+      },
+      "library_pattern": {
+        "name": "Library pattern"
       }
     },
     "sensor": {
@@ -55,7 +61,24 @@
         "data": {
           "prefer_local": "Use local control when available",
           "host": "Controller IP address (optional)",
-          "enable_local": "Switch on local control on the controller if it is off"
+          "enable_local": "Switch on local control on the controller if it is off",
+          "enable_library": "Load Gemstone's official pattern library"
+        }
+      }
+    }
+  },
+  "services": {
+    "play_library_pattern": {
+      "name": "Play library pattern",
+      "description": "Play a pattern from Gemstone's official library by name.",
+      "fields": {
+        "pattern": {
+          "name": "Pattern",
+          "description": "The pattern's name."
+        },
+        "folder": {
+          "name": "Folder",
+          "description": "Optional library folder to search within."
         }
       }
     }

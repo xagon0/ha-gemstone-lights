@@ -25,6 +25,7 @@ from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .const import (
     CATALOG_REFRESH_INTERVAL,
     CONF_ENABLE_LOCAL,
+    LIBRARY_REFRESH_INTERVAL,
     LOCAL_RETRY_BACKOFF,
     LOCAL_WRITE_GAP,
     DATA_DESIGNS,
@@ -56,6 +57,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         host_override: str | None = None,
         prefer_local: bool = True,
         enable_local: bool = True,
+        enable_library: bool = True,
     ) -> None:
         """Initialise the coordinator."""
         super().__init__(
@@ -69,7 +71,14 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._host_override = host_override
         self._prefer_local = prefer_local
         self._enable_local = enable_local
+        self._enable_library = enable_library
         self._enable_attempted: set[str] = set()
+
+        # Gemstone's official pattern library, keyed by folder id.
+        self._library_folders: dict[str, dict[str, Any]] = {}
+        self._library: dict[str, list[dict[str, Any]]] = {}
+        self._library_refreshed: datetime | None = None
+        self._selected_folder: dict[str, str] = {}
 
         self._device_ids: list[str] = []
         self._designs: dict[str, list[dict[str, Any]]] = {}
@@ -293,6 +302,14 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if due:
                 await self._async_refresh_catalog(self._device_ids)
 
+            library_due = self._enable_library and (
+                self._library_refreshed is None
+                or dt_util.utcnow() - self._library_refreshed
+                > LIBRARY_REFRESH_INTERVAL
+            )
+            if library_due:
+                await self._async_refresh_library()
+
             result: dict[str, Any] = {DATA_DEVICES: {}}
             for device in devices:
                 device_id = device.get("id")
@@ -443,6 +460,93 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else None,
             lambda: self.api.async_play_design(device_id, design),
         )
+
+
+    # -- Gemstone's official pattern library ---------------------------------
+
+    async def _async_refresh_library(self) -> None:
+        """Load the official library: ~1700 patterns across ~68 folders."""
+        try:
+            folders = await self.api.async_get_library_folders()
+            patterns = await self.api.async_get_library_patterns()
+        except GemstoneError as err:
+            _LOGGER.debug("Could not load the pattern library: %s", err)
+            return
+
+        self._library_folders = {f["id"]: f for f in folders if f.get("id")}
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in patterns:
+            folder_id = item.get("downloadableFolderId")
+            data = item.get("patternData")
+            name = item.get("patternName")
+            if not folder_id or not data or not name:
+                continue
+            grouped.setdefault(folder_id, []).append({"name": name, "data": data})
+
+        for entries in grouped.values():
+            entries.sort(key=lambda e: e["name"])
+        self._library = grouped
+        self._library_refreshed = dt_util.utcnow()
+        _LOGGER.debug(
+            "Loaded %s library patterns across %s folders",
+            sum(len(v) for v in grouped.values()),
+            len(grouped),
+        )
+
+    def _folder_label(self, folder_id: str) -> str:
+        """Return a readable "category / folder" label."""
+        folder = self._library_folders.get(folder_id, {})
+        name = folder.get("folderName") or "Unknown"
+        category = (folder.get("category") or "other").replace("-", " ")
+        return f"{category} / {name}"
+
+    def library_folder_options(self) -> list[str]:
+        """Return every library folder, grouped by category."""
+        labels = [
+            self._folder_label(folder_id)
+            for folder_id in self._library
+            if self._library.get(folder_id)
+        ]
+        return sorted(labels)
+
+    def selected_folder(self, device_id: str) -> str | None:
+        """Return the library folder currently being browsed."""
+        return self._selected_folder.get(device_id)
+
+    def set_selected_folder(self, device_id: str, label: str) -> None:
+        """Remember which library folder is being browsed."""
+        self._selected_folder[device_id] = label
+
+    def library_pattern_options(self, device_id: str) -> list[str]:
+        """Return the patterns inside the folder being browsed."""
+        label = self._selected_folder.get(device_id)
+        if not label:
+            return []
+        for folder_id, entries in self._library.items():
+            if self._folder_label(folder_id) == label:
+                return [e["name"] for e in entries]
+        return []
+
+    def find_library_pattern(
+        self, name: str, folder_label: str | None = None
+    ) -> dict[str, Any] | None:
+        """Find a library pattern by name, optionally within one folder."""
+        wanted = name.strip().casefold()
+        for folder_id, entries in self._library.items():
+            if folder_label and self._folder_label(folder_id) != folder_label:
+                continue
+            for entry in entries:
+                if entry["name"].casefold() == wanted:
+                    return entry["data"]
+        return None
+
+    def library_pattern_names(self) -> list[str]:
+        """Return every library pattern name (used for error hints)."""
+        return [e["name"] for entries in self._library.values() for e in entries]
+
+    def library_size(self) -> int:
+        """Return how many library patterns are loaded."""
+        return sum(len(v) for v in self._library.values())
 
     # -- zones ---------------------------------------------------------------
 

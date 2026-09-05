@@ -19,6 +19,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .const import (
     CONF_EMAIL,
+    CONF_ENABLE_LIBRARY,
     CONF_ENABLE_LOCAL,
     CONF_HOST,
     CONF_PASSWORD,
@@ -37,6 +38,7 @@ OPTIONS_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_PREFER_LOCAL, default=True): bool,
         vol.Optional(CONF_ENABLE_LOCAL, default=True): bool,
+        vol.Optional(CONF_ENABLE_LIBRARY, default=True): bool,
         vol.Optional(CONF_HOST, default=""): str,
     }
 )
@@ -141,6 +143,7 @@ class GemstoneOptionsFlow(OptionsFlow):
                 data={
                     CONF_PREFER_LOCAL: user_input.get(CONF_PREFER_LOCAL, True),
                     CONF_ENABLE_LOCAL: user_input.get(CONF_ENABLE_LOCAL, True),
+                    CONF_ENABLE_LIBRARY: user_input.get(CONF_ENABLE_LIBRARY, True),
                     CONF_HOST: (user_input.get(CONF_HOST) or "").strip(),
                 }
             )

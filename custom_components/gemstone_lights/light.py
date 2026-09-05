@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import voluptuous as vol
+
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_EFFECT,
@@ -24,6 +26,8 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import GemstoneConfigEntry
@@ -66,6 +70,17 @@ async def async_setup_entry(
 
     _add_new_entities()
     entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
+
+    # Lets automations reach any of the ~1700 library patterns by name,
+    # which no dropdown could sensibly offer.
+    entity_platform.async_get_current_platform().async_register_entity_service(
+        "play_library_pattern",
+        {
+            vol.Required("pattern"): cv.string,
+            vol.Optional("folder"): cv.string,
+        },
+        "async_play_library_pattern",
+    )
 
 
 class _GemstoneBaseLight(GemstoneEntity, LightEntity):
@@ -178,6 +193,24 @@ class GemstoneLight(_GemstoneBaseLight):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the lights off."""
         await self.coordinator.async_set_power(self._device_id, False)
+
+    async def async_play_library_pattern(
+        self, pattern: str, folder: str | None = None
+    ) -> None:
+        """Play a pattern from Gemstone's official library by name."""
+        data = self.coordinator.find_library_pattern(pattern, folder)
+        if data is None:
+            wanted = pattern.casefold()
+            near = [
+                name
+                for name in self.coordinator.library_pattern_names()
+                if wanted in name.casefold()
+            ][:5]
+            raise HomeAssistantError(
+                f"No library pattern called '{pattern}'."
+                + (f" Did you mean: {', '.join(near)}?" if near else "")
+            )
+        await self.coordinator.async_play_pattern(self._device_id, data)
 
 
 class GemstoneZoneLight(_GemstoneBaseLight):

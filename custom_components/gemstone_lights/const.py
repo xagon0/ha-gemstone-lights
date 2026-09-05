@@ -31,6 +31,8 @@ CONF_PASSWORD: Final = "password"
 DEFAULT_SCAN_INTERVAL: Final = timedelta(seconds=30)
 # Saved designs/patterns change rarely; refresh them far less often.
 CATALOG_REFRESH_INTERVAL: Final = timedelta(minutes=15)
+# Gemstone's official library is large and barely changes.
+LIBRARY_REFRESH_INTERVAL: Final = timedelta(hours=24)
 
 REQUEST_TIMEOUT: Final = 30
 
@@ -45,6 +47,9 @@ DATA_PATTERNS: Final = "patterns"
 
 # Shown in a select when nothing recognisable is playing.
 OPTION_NONE: Final = "None"
+
+# Shown in the library folder select before a folder is chosen.
+OPTION_PICK_FOLDER: Final = "Pick a folder"
 
 # --- Effects ---------------------------------------------------------------
 # Animation identifiers understood by the controller. These ship with the
@@ -70,6 +75,7 @@ DATA_ZONES: Final = "zones"
 CONF_HOST: Final = "host"
 CONF_PREFER_LOCAL: Final = "prefer_local"
 CONF_ENABLE_LOCAL: Final = "enable_local"
+CONF_ENABLE_LIBRARY: Final = "enable_library"
 LOCAL_TIMEOUT: Final = 8
 LOCAL_MAX_PAYLOAD: Final = 15 * 1024
 # The vendor drivers tag their writes; the controller echoes this back.
