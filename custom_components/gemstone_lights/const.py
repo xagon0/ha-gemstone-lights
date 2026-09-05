@@ -73,5 +73,7 @@ LOCAL_TIMEOUT: Final = 8
 LOCAL_MAX_PAYLOAD: Final = 15 * 1024
 # The vendor drivers tag their writes; the controller echoes this back.
 LOCAL_ORIGIN: Final = "control4"
+# The controller ignores writes that arrive back to back.
+LOCAL_WRITE_GAP: Final = 1.5
 DATA_LOCAL: Final = "local"
 DATA_SETTINGS: Final = "settings"

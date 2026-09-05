@@ -24,6 +24,7 @@ from homeassistant.util import dt as dt_util
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .const import (
     CATALOG_REFRESH_INTERVAL,
+    LOCAL_WRITE_GAP,
     DATA_DESIGNS,
     DATA_DEVICES,
     DATA_INFO,
@@ -72,6 +73,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._catalog_refreshed: datetime | None = None
         self._speeds: dict[str, int] = {}
 
+        # The controller drops writes that arrive too close together.
+        self._write_lock = asyncio.Lock()
         self._local: dict[str, GemstoneLocalApi] = {}
         self._local_ok: dict[str, bool] = {}
         self._settings: dict[str, dict[str, Any]] = {}
@@ -286,11 +289,16 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- commands (local first, cloud fallback) ----------------------------
 
     async def _async_command(self, device_id: str, local_coro, cloud_coro) -> None:
-        """Run a command locally when possible, else via the cloud."""
+        """Run a command locally when possible, else via the cloud.
+
+        Writes are serialised and spaced: the controller silently ignores
+        commands that arrive back to back.
+        """
         if local_coro is not None and self.is_local(device_id):
             try:
-                await local_coro()
-                await asyncio.sleep(0.5)
+                async with self._write_lock:
+                    await local_coro()
+                    await asyncio.sleep(LOCAL_WRITE_GAP)
                 await self.async_request_refresh()
                 return
             except GemstoneLocalError as err:
@@ -370,43 +378,145 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             lambda: self.api.async_play_design(device_id, design),
         )
 
-    # -- per-zone (architectural) state -------------------------------------
+    # -- zones ---------------------------------------------------------------
 
-    def zone_patterns(self, device_id: str) -> dict[str, dict[str, Any]]:
-        """Return the pattern applied to each zone, keyed by zone id."""
+    def zone_ranges(self, device_id: str) -> dict[str, tuple[int, int]]:
+        """Return each zone's inclusive pixel range, keyed by zone id.
+
+        The cloud describes a zone as ``lights: [n, start, end]``.
+        """
+        ranges: dict[str, tuple[int, int]] = {}
+        for zone in self.zones(device_id):
+            lights = zone.get("lights") or []
+            if zone.get("id") and len(lights) >= 3:
+                ranges[zone["id"]] = (int(lights[-2]), int(lights[-1]))
+        return ranges
+
+    def zone_states(self, device_id: str) -> dict[str, dict[str, Any]]:
+        """Return what each zone is showing.
+
+        Cloud-applied designs carry ``zonePatterns``; the controller itself
+        only reports ``staticColors``, so those are mapped back onto zones by
+        matching pixel ranges.
+        """
         design = self.device_state(device_id).get("architectural") or {}
-        return {
-            entry["zoneId"]: entry.get("pattern") or {}
-            for entry in design.get("zonePatterns") or []
-            if entry.get("zoneId")
-        }
 
-    async def async_set_zone_pattern(
-        self, device_id: str, zone_id: str, pattern: dict[str, Any] | None
+        if zone_patterns := design.get("zonePatterns"):
+            result: dict[str, dict[str, Any]] = {}
+            for entry in zone_patterns:
+                zone_id = entry.get("zoneId")
+                pattern = entry.get("pattern") or {}
+                colors = pattern.get("colors") or []
+                if zone_id:
+                    result[zone_id] = {
+                        "color": colors[0] if colors else 0,
+                        "brightness": pattern.get("brightness", 255),
+                        "animation": pattern.get("animation") or EFFECT_SOLID,
+                    }
+            return result
+
+        static = design.get("staticColors") or []
+        if not static:
+            return {}
+
+        result = {}
+        brightness = design.get("brightness", 255)
+        for zone_id, (start, end) in self.zone_ranges(device_id).items():
+            for entry in static:
+                lights = entry.get("lights") or []
+                if not lights or entry.get("color") in (None, 0):
+                    continue
+                covered = set(lights) if len(lights) != 3 else set(
+                    range(int(lights[-2]), int(lights[-1]) + 1)
+                )
+                if start in covered and end in covered:
+                    result[zone_id] = {
+                        "color": entry["color"],
+                        "brightness": brightness,
+                        "animation": EFFECT_SOLID,
+                    }
+                    break
+        return result
+
+    async def async_set_zone(
+        self, device_id: str, zone_id: str, spec: dict[str, Any] | None
     ) -> None:
         """Set or clear one zone, preserving what the other zones show.
 
-        Every write replaces the whole design, so the full picture has to be
-        sent each time.
+        Every write replaces the whole design, so the full picture is sent
+        each time. All-solid designs go out locally as ``staticColors``; if any
+        zone wants an animation the design must go through the cloud, which is
+        the only side that understands ``zonePatterns``.
         """
-        current = self.zone_patterns(device_id)
-        if pattern is None:
-            current.pop(zone_id, None)
+        desired = self.zone_states(device_id)
+        if spec is None:
+            desired.pop(zone_id, None)
         else:
-            current[zone_id] = pattern
+            desired[zone_id] = spec
 
-        if not current:
+        if not desired:
             await self.async_set_power(device_id, False)
             return
 
-        await self.async_play_design(
+        ranges = self.zone_ranges(device_id)
+        all_solid = all(
+            entry["animation"] in (EFFECT_SOLID, "motionless")
+            for entry in desired.values()
+        )
+        client = self._local.get(device_id)
+
+        if all_solid and client and self.is_local(device_id) and ranges:
+            static = [
+                {
+                    "lights": list(range(*(ranges[zid][0], ranges[zid][1] + 1))),
+                    "color": entry["color"],
+                }
+                for zid, entry in desired.items()
+                if zid in ranges
+            ]
+            design = {
+                "id": str(uuid.uuid4()),
+                "name": "Home Assistant Zones",
+                "brightness": max(e["brightness"] for e in desired.values()),
+                "preview": False,
+                "staticColors": static,
+            }
+            try:
+                async with self._write_lock:
+                    await client.async_play(
+                        {"onState": True, "architectural": design}
+                    )
+                    await asyncio.sleep(LOCAL_WRITE_GAP)
+                await self.async_request_refresh()
+                return
+            except GemstoneLocalError as err:
+                _LOGGER.warning(
+                    "Gemstone %s: local zone write failed (%s), using cloud",
+                    device_id,
+                    err,
+                )
+
+        # Animated zones, or no local path: the cloud expands zonePatterns.
+        zone_patterns = [
+            {
+                "zoneId": zid,
+                "pattern": self.build_pattern(
+                    device_id,
+                    [entry["color"]],
+                    entry["animation"],
+                    brightness=entry["brightness"],
+                ),
+            }
+            for zid, entry in desired.items()
+        ]
+        await self.api.async_play_design(
             device_id,
             {
                 "id": str(uuid.uuid4()),
                 "name": "Home Assistant Zones",
                 "brightness": 255,
-                "zonePatterns": [
-                    {"zoneId": zid, "pattern": pat} for zid, pat in current.items()
-                ],
+                "zonePatterns": zone_patterns,
             },
         )
+        await asyncio.sleep(2)
+        await self.async_request_refresh()

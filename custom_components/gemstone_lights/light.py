@@ -174,48 +174,53 @@ class GemstoneZoneLight(_GemstoneBaseLight):
         self._attr_unique_id = f"{device_id}_zone_{self._zone_id}"
 
     @property
-    def _zone_pattern(self) -> dict[str, Any] | None:
-        return self.coordinator.zone_patterns(self._device_id).get(self._zone_id)
+    def _zone(self) -> dict[str, Any] | None:
+        """Return what this zone is showing, if anything."""
+        return self.coordinator.zone_states(self._device_id).get(self._zone_id)
 
     @property
     def is_on(self) -> bool:
         """Return True when this zone is showing something."""
-        return bool(self._state.get("onState")) and self._zone_pattern is not None
+        return bool(self._state.get("onState")) and self._zone is not None
 
     @property
     def rgbw_color(self) -> tuple[int, int, int, int] | None:
-        """Return this zone's first colour."""
-        colors = (self._zone_pattern or {}).get("colors") or []
-        return unpack(colors[0]) if colors else None
+        """Return this zone's colour."""
+        if zone := self._zone:
+            return unpack(zone.get("color"))
+        return None
 
     @property
     def brightness(self) -> int | None:
         """Return this zone's brightness."""
-        return (self._zone_pattern or {}).get("brightness")
+        return (self._zone or {}).get("brightness")
 
     @property
     def effect(self) -> str | None:
         """Return this zone's animation."""
-        if pattern := self._zone_pattern:
-            return pattern.get("animation") or EFFECT_SOLID
+        if zone := self._zone:
+            return zone.get("animation") or EFFECT_SOLID
         return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Note that animated zones need the cloud."""
+        return {
+            "control": "local"
+            if self.coordinator.is_local(self._device_id)
+            and self.effect in (EFFECT_SOLID, "motionless", None)
+            else "cloud"
+        }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Apply a colour and effect to this zone only."""
         rgbw, brightness, effect = self._resolve(kwargs)
-        pattern = self.coordinator.build_pattern(
+        await self.coordinator.async_set_zone(
             self._device_id,
-            [pack(*rgbw)],
-            "motionless" if effect == EFFECT_SOLID else effect,
-            name=self._attr_name or "Zone",
-            brightness=brightness,
-        )
-        await self.coordinator.async_set_zone_pattern(
-            self._device_id, self._zone_id, pattern
+            self._zone_id,
+            {"color": pack(*rgbw), "brightness": brightness, "animation": effect},
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Clear this zone, leaving the others as they are."""
-        await self.coordinator.async_set_zone_pattern(
-            self._device_id, self._zone_id, None
-        )
+        await self.coordinator.async_set_zone(self._device_id, self._zone_id, None)

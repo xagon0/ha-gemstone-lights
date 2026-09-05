@@ -62,8 +62,35 @@ sensor's `control` attribute shows which path is in use.
 
 To pin an address or force the cloud, use **Configure** on the integration.
 
-The cloud is still used for account discovery, saved designs, zone definitions
-and the pattern catalog, because the controller does not serve those.
+### What each path can do
+
+Verified against a Hub2 on firmware 1.1.5.
+
+| | Local | Cloud |
+| --- | --- | --- |
+| On/off | yes | yes |
+| Solid colour | yes, with a real brightness field | yes, brightness folded into the colour |
+| Animated pattern (whole run) | yes | yes |
+| Per-zone solid colour | yes, via `staticColors` | yes |
+| Per-zone animated effect | no | yes |
+| Saved designs, zones, pattern catalog | no | yes |
+| Firmware, pixel counts, RGBW order | yes | no |
+
+The controller understands `staticColors` (explicit pixel indices) but not
+`zonePatterns`; zones are a cloud concept that the cloud expands into pixel
+ranges. So an all-solid zone layout is sent locally, and a layout containing
+any animation is sent through the cloud. The integration picks per command.
+
+The cloud is also still used for account discovery, saved designs, zone
+definitions and the pattern catalog, because the controller does not serve
+those.
+
+### A quirk worth knowing
+
+The controller silently ignores writes that arrive back to back: it answers
+`200` and keeps its previous state. The integration serialises writes and
+spaces them, which is why a burst of rapid commands settles a second or two
+later rather than being lost.
 
 ## Notes and limitations
 
