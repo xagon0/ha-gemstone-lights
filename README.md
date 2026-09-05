@@ -56,9 +56,18 @@ re-authenticate.
 ## Local control
 
 Turn on **Device Settings → Advanced Settings → Allow Local Commands** in the
-Gemstone app. Nothing else is needed: the controller's address comes from your
-account, and the integration switches to it automatically. The *Now playing*
-sensor's `control` attribute shows which path is in use.
+Gemstone app. Nothing else is needed.
+
+You sign in with your Gemstone account as usual. The controller reports its own
+LAN address and whether local commands are enabled to Gemstone, so the
+integration reads both from your account and switches to local by itself, with
+no IP to type in. The *Now playing* sensor's `control` attribute shows which
+path is in use.
+
+If the controller moves to a new address, the integration notices and follows
+it. If it cannot be reached — local commands switched off, or Home Assistant on
+a network that cannot see it — it stays on the cloud and retries every few
+minutes rather than delaying each update.
 
 To pin an address or force the cloud, use **Configure** on the integration.
 

@@ -24,6 +24,7 @@ from homeassistant.util import dt as dt_util
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .const import (
     CATALOG_REFRESH_INTERVAL,
+    LOCAL_RETRY_BACKOFF,
     LOCAL_WRITE_GAP,
     DATA_DESIGNS,
     DATA_DEVICES,
@@ -77,6 +78,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._write_lock = asyncio.Lock()
         self._local: dict[str, GemstoneLocalApi] = {}
         self._local_ok: dict[str, bool] = {}
+        # Don't retry a controller we can't reach on every single poll.
+        self._local_retry_after: dict[str, datetime] = {}
         self._settings: dict[str, dict[str, Any]] = {}
 
     # -- basics -------------------------------------------------------------
@@ -125,16 +128,49 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- transport ----------------------------------------------------------
 
-    def _local_client(self, device_id: str, info: dict[str, Any]) -> GemstoneLocalApi | None:
-        """Return (creating if needed) the LAN client for a controller."""
+    def _local_client(
+        self, device_id: str, info: dict[str, Any]
+    ) -> GemstoneLocalApi | None:
+        """Return the LAN client for a controller, if local control applies.
+
+        The address comes from the controller's own cloud record, so nothing
+        has to be configured by hand. The record also says whether "Allow
+        Local Commands" is switched on, which saves pointless connections.
+        """
         if not self._prefer_local:
             return None
-        if device_id in self._local:
-            return self._local[device_id]
 
-        host = self._host_override or (info.get("hub") or {}).get("localIp")
+        hub = info.get("hub") or {}
+        host = self._host_override or hub.get("localIp")
         if not host:
             return None
+
+        # Respect the app's own switch, unless an address was pinned by hand.
+        if not self._host_override and hub.get("tcpEnabled") is False:
+            if self._local_ok.get(device_id) is not False:
+                _LOGGER.info(
+                    "Gemstone %s: 'Allow Local Commands' is off, using cloud",
+                    device_id,
+                )
+            self._local_ok[device_id] = False
+            return None
+
+        # Back off after a failure rather than stalling every poll.
+        retry_after = self._local_retry_after.get(device_id)
+        if retry_after and dt_util.utcnow() < retry_after:
+            return None
+
+        existing = self._local.get(device_id)
+        if existing is not None and existing.host == host:
+            return existing
+
+        if existing is not None:
+            _LOGGER.info(
+                "Gemstone %s: local address changed from %s to %s",
+                device_id,
+                existing.host,
+                host,
+            )
         client = GemstoneLocalApi(async_get_clientsession(self.hass), host)
         self._local[device_id] = client
         return client
@@ -197,6 +233,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "Gemstone %s: using local control at %s", device_id, client.host
                     )
                 self._local_ok[device_id] = True
+                self._local_retry_after.pop(device_id, None)
                 try:
                     self._settings[device_id] = await client.async_get_settings()
                 except GemstoneLocalError:
@@ -210,6 +247,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         err,
                     )
                 self._local_ok[device_id] = False
+                self._local_retry_after[device_id] = dt_util.utcnow() + LOCAL_RETRY_BACKOFF
 
         try:
             return await self.api.async_get_state(device_id)
@@ -308,6 +346,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     err,
                 )
                 self._local_ok[device_id] = False
+                self._local_retry_after[device_id] = (
+                    dt_util.utcnow() + LOCAL_RETRY_BACKOFF
+                )
 
         await cloud_coro()
         await asyncio.sleep(2)

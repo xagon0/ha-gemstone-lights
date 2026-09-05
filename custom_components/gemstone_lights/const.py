@@ -75,5 +75,7 @@ LOCAL_MAX_PAYLOAD: Final = 15 * 1024
 LOCAL_ORIGIN: Final = "control4"
 # The controller ignores writes that arrive back to back.
 LOCAL_WRITE_GAP: Final = 1.5
+# How long to stay on the cloud after the controller cannot be reached.
+LOCAL_RETRY_BACKOFF: Final = timedelta(minutes=5)
 DATA_LOCAL: Final = "local"
 DATA_SETTINGS: Final = "settings"
