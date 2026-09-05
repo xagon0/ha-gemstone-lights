@@ -186,7 +186,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         colors: list[int],
         animation: str,
         *,
-        name: str = "Home Assistant",
+        name: str | None = None,
         brightness: int = 255,
     ) -> dict[str, Any]:
         """Build a pattern payload the controller accepts.
@@ -196,7 +196,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         return {
             "id": str(uuid.uuid4()),
-            "name": name,
+            "name": name or animation.replace("_", " ").title(),
             "colors": colors or [0xFFFFFF],
             "animation": EFFECT_SOLID if animation == EFFECT_SOLID else animation,
             "speed": self.speed(device_id),
