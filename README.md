@@ -13,9 +13,11 @@ to Gemstone's cloud for the things only the cloud can answer.
 - **Light entity** - on/off, RGB colour, brightness, and all 29 built-in
   animations exposed as Home Assistant effects (chase, fireworks, glitter,
   marquee, pacman, spectrum, wave, and more).
-- **A light per zone** - each configured zone (front upper, rear lower, ...)
-  is its own light with its own colour and effect, much like WLED segments.
-  This is how you drive front and back independently.
+- **A light per zone** - every zone you created in the Gemstone app becomes its
+  own light with its own colour and effect, much like WLED segments. The names
+  are yours, whatever you called them, and zones added or renamed later are
+  picked up without reconfiguring anything. This is how you drive front and
+  back independently.
 - **Effect speed** - a slider that also re-applies the running effect.
 - **Design select** - play any design saved in the Gemstone app.
 - **Pattern select** - play any pattern saved in your account's folders.

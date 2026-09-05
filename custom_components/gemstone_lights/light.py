@@ -23,7 +23,7 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityFeature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import GemstoneConfigEntry
@@ -38,15 +38,34 @@ async def async_setup_entry(
     entry: GemstoneConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the whole-run light plus one light per zone."""
+    """Set up the whole-run light plus one light per zone.
+
+    Zones are whatever the owner created in the Gemstone app, so the list is
+    re-checked on every update and zones added later appear on their own.
+    """
     coordinator = entry.runtime_data
-    entities: list[LightEntity] = []
-    for device_id in coordinator.device_ids:
-        entities.append(GemstoneLight(coordinator, device_id))
-        for zone in coordinator.zones(device_id):
-            if zone.get("id") and zone.get("name"):
-                entities.append(GemstoneZoneLight(coordinator, device_id, zone))
-    async_add_entities(entities)
+    known: set[str] = set()
+
+    @callback
+    def _add_new_entities() -> None:
+        new: list[LightEntity] = []
+        for device_id in coordinator.device_ids:
+            if device_id not in known:
+                known.add(device_id)
+                new.append(GemstoneLight(coordinator, device_id))
+            for zone in coordinator.zones(device_id):
+                zone_id = zone.get("id")
+                if not zone_id or not zone.get("name"):
+                    continue
+                key = f"{device_id}:{zone_id}"
+                if key not in known:
+                    known.add(key)
+                    new.append(GemstoneZoneLight(coordinator, device_id, zone_id))
+        if new:
+            async_add_entities(new)
+
+    _add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
 class _GemstoneBaseLight(GemstoneEntity, LightEntity):
@@ -165,13 +184,28 @@ class GemstoneZoneLight(_GemstoneBaseLight):
     """One zone of the run, behaving like a WLED segment."""
 
     def __init__(
-        self, coordinator: GemstoneCoordinator, device_id: str, zone: dict[str, Any]
+        self, coordinator: GemstoneCoordinator, device_id: str, zone_id: str
     ) -> None:
         """Initialise the zone light."""
         super().__init__(coordinator, device_id)
-        self._zone_id: str = zone["id"]
-        self._attr_name = zone["name"]
-        self._attr_unique_id = f"{device_id}_zone_{self._zone_id}"
+        self._zone_id = zone_id
+        self._attr_unique_id = f"{device_id}_zone_{zone_id}"
+
+    @property
+    def name(self) -> str | None:
+        """Return the zone's name as it is in the Gemstone app."""
+        for zone in self.coordinator.zones(self._device_id):
+            if zone.get("id") == self._zone_id:
+                return zone.get("name")
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Return False if the zone has been deleted in the app."""
+        return super().available and any(
+            zone.get("id") == self._zone_id
+            for zone in self.coordinator.zones(self._device_id)
+        )
 
     @property
     def _zone(self) -> dict[str, Any] | None:
