@@ -10,13 +10,21 @@ mobile app uses.
 
 ## Features
 
-- **Light entity** - on/off, RGB colour, and brightness.
-- **Design select** - play any saved design, including designs that target
-  individual zones, so you can drive front and back independently.
+- **Light entity** - on/off, RGB colour, brightness, and all 29 built-in
+  animations exposed as Home Assistant effects (chase, fireworks, glitter,
+  marquee, pacman, spectrum, wave, and more).
+- **A light per zone** - each configured zone (front upper, rear lower, ...)
+  is its own light with its own colour and effect, much like WLED segments.
+  This is how you drive front and back independently.
+- **Effect speed** - a slider that also re-applies the running effect.
+- **Design select** - play any design saved in the Gemstone app.
 - **Pattern select** - play any pattern saved in your account's folders.
 - **Now playing sensor** - what the controller is currently showing, plus
   firmware, output names and local IP as attributes.
-- Devices are discovered automatically across every homegroup on the account.
+- Devices and zones are discovered automatically across every homegroup.
+
+Effects and colours are built on the fly, so you are not limited to patterns
+you saved in the app first.
 
 ## Installation
 
@@ -96,6 +104,25 @@ Two traps cost the most time:
 | PUT | `/deviceControl/play/color` | `deviceOrGroupId` | `{"color": 65280}` |
 | PUT | `/deviceControl/play/pattern` | `deviceOrGroupId` | `{"pattern": {...}}` |
 | PUT | `/deviceControl/play/architectural` | `deviceId` | `{"architectural": {...}}` |
+
+Patterns do not have to exist in the account: the controller will play any
+well-formed pattern object, which is what makes free-form effect selection
+possible. A pattern looks like:
+
+```json
+{"name": "…", "colors": [16711680], "animation": "chase", "speed": 200,
+ "brightness": 255, "direction": 0, "backgroundColor": 0, "id": "<uuid>"}
+```
+
+Valid `animation` values are the 29 names shipped with the app: accent, around,
+chase, eyeball, fade, fireworks, flicker, flow, ghost, glitch, glitter,
+gradient, gradient_wave, isofade, marquee, motionless, multipulse, pacman,
+pulse, pyramid_chase, smooth, spectrum, spotlight, stack, starry, stretch,
+sway, tremor, wave.
+
+Per-zone output uses an architectural design whose `zonePatterns` list maps a
+`zoneId` (from `/deviceControl/zone/list`) to a pattern. The call replaces the
+whole design, so send every zone you want lit on each request.
 
 Colours are `0xRRGGBB` integers. `currentlyPlaying` returns `onState`, `color`,
 `pattern`, `architectural` and `playlist`, where only one of the last three is

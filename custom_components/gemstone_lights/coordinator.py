@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -16,6 +17,8 @@ from homeassistant.util import dt as dt_util
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .const import (
     CATALOG_REFRESH_INTERVAL,
+    DEFAULT_SPEED,
+    EFFECT_SOLID,
     DATA_DESIGNS,
     DATA_DEVICES,
     DATA_INFO,
@@ -52,6 +55,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._patterns: list[dict[str, Any]] = []
         self._zones: dict[str, list[dict[str, Any]]] = {}
         self._catalog_refreshed: datetime | None = None
+        # Speed is not reported by the cloud, so remember what was asked for.
+        self._speeds: dict[str, int] = {}
 
     @property
     def device_ids(self) -> list[str]:
@@ -163,6 +168,81 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def patterns(self) -> list[dict[str, Any]]:
         """Return the account's patterns."""
         return (self.data or {}).get(DATA_PATTERNS, [])
+
+
+    # -- pattern construction ----------------------------------------------
+
+    def speed(self, device_id: str) -> int:
+        """Return the speed to use when building patterns."""
+        return self._speeds.get(device_id, DEFAULT_SPEED)
+
+    def set_speed(self, device_id: str, value: int) -> None:
+        """Remember the desired animation speed."""
+        self._speeds[device_id] = max(0, min(255, int(value)))
+
+    def build_pattern(
+        self,
+        device_id: str,
+        colors: list[int],
+        animation: str,
+        *,
+        name: str = "Home Assistant",
+        brightness: int = 255,
+    ) -> dict[str, Any]:
+        """Build a pattern payload the controller accepts.
+
+        The controller happily plays patterns that were never saved to the
+        account, which is what makes free-form effect selection possible.
+        """
+        return {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "colors": colors or [0xFFFFFF],
+            "animation": EFFECT_SOLID if animation == EFFECT_SOLID else animation,
+            "speed": self.speed(device_id),
+            "brightness": max(1, min(255, brightness)),
+            "direction": 0,
+            "backgroundColor": 0,
+        }
+
+    # -- per-zone (architectural) state -------------------------------------
+
+    def zone_patterns(self, device_id: str) -> dict[str, dict[str, Any]]:
+        """Return the pattern currently applied to each zone, keyed by zone id."""
+        design = self.device_state(device_id).get("architectural") or {}
+        return {
+            entry["zoneId"]: entry.get("pattern") or {}
+            for entry in design.get("zonePatterns") or []
+            if entry.get("zoneId")
+        }
+
+    async def async_set_zone_pattern(
+        self, device_id: str, zone_id: str, pattern: dict[str, Any] | None
+    ) -> None:
+        """Set or clear one zone, preserving whatever the other zones show.
+
+        The controller replaces the whole design on every call, so the full
+        picture has to be sent each time.
+        """
+        current = self.zone_patterns(device_id)
+        if pattern is None:
+            current.pop(zone_id, None)
+        else:
+            current[zone_id] = pattern
+
+        if not current:
+            await self.async_apply(self.api.async_set_power(device_id, False))
+            return
+
+        design = {
+            "id": str(uuid.uuid4()),
+            "name": "Home Assistant Zones",
+            "brightness": 255,
+            "zonePatterns": [
+                {"zoneId": zid, "pattern": pat} for zid, pat in current.items()
+            ],
+        }
+        await self.async_apply(self.api.async_play_design(device_id, design))
 
     async def async_apply(self, coro) -> None:
         """Run a control call then refresh state shortly after.

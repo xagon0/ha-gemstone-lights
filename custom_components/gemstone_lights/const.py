@@ -45,3 +45,21 @@ DATA_PATTERNS: Final = "patterns"
 
 # Shown in a select when nothing recognisable is playing.
 OPTION_NONE: Final = "None"
+
+# --- Effects ---------------------------------------------------------------
+# Animation identifiers understood by the controller. These ship with the
+# official app; "motionless" simply holds the colours still.
+ANIMATIONS: Final = [
+    "accent", "around", "chase", "eyeball", "fade", "fireworks", "flicker",
+    "flow", "ghost", "glitch", "glitter", "gradient", "gradient_wave",
+    "isofade", "marquee", "motionless", "multipulse", "pacman", "pulse",
+    "pyramid_chase", "smooth", "spectrum", "spotlight", "stack", "starry",
+    "stretch", "sway", "tremor", "wave",
+]
+
+# Presented instead of an animation when showing one plain colour.
+EFFECT_SOLID: Final = "Solid"
+EFFECT_LIST: Final = [EFFECT_SOLID, *ANIMATIONS]
+
+DEFAULT_SPEED: Final = 128
+DATA_ZONES: Final = "zones"

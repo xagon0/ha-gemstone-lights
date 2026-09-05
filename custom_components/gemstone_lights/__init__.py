@@ -16,7 +16,12 @@ from .coordinator import GemstoneCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.LIGHT, Platform.SELECT, Platform.SENSOR]
+PLATFORMS: list[Platform] = [
+    Platform.LIGHT,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SENSOR,
+]
 
 type GemstoneConfigEntry = ConfigEntry[GemstoneCoordinator]
 

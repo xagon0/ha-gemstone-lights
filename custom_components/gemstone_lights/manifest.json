@@ -1,12 +1,16 @@
 {
   "domain": "gemstone_lights",
   "name": "Gemstone Lights",
-  "codeowners": ["@xagon0"],
+  "codeowners": [
+    "@xagon0"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/xagon0/ha-gemstone-lights",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/xagon0/ha-gemstone-lights/issues",
-  "requirements": ["pycognito==2024.5.1"],
-  "version": "1.0.0"
+  "requirements": [
+    "pycognito==2024.5.1"
+  ],
+  "version": "1.1.0"
 }

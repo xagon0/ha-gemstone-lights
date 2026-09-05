@@ -40,6 +40,11 @@
       "now_playing": {
         "name": "Now playing"
       }
+    },
+    "number": {
+      "speed": {
+        "name": "Effect speed"
+      }
     }
   }
 }
