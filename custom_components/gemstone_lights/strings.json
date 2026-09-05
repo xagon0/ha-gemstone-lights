@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Gemstone Lights",
+        "description": "Sign in with the same account you use in the Gemstone Lights app.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Gemstone Lights",
+        "description": "The password for {email} is no longer working. Enter it again.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email or password.",
+      "cannot_connect": "Could not reach the Gemstone cloud.",
+      "unknown": "Unexpected error. Check the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This Gemstone account is already set up.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "entity": {
+    "select": {
+      "design": {
+        "name": "Design"
+      },
+      "pattern": {
+        "name": "Pattern"
+      }
+    },
+    "sensor": {
+      "now_playing": {
+        "name": "Now playing"
+      }
+    }
+  }
+}
