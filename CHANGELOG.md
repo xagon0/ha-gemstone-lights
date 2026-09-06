@@ -14,10 +14,12 @@
 - Provide HA script/automation blueprints for playlists, weekly schedules and
   sunset-to-sunrise operation, tested in the real HA automation engine.
 - Request separate HTTP connections to avoid observed embedded-server stalls.
+- Fill in firmware-required identity/default fields for custom content and retain
+  all six direction values observed in the live vendor catalog.
 - Document a complete capability inventory and unresolved provisioning, music,
   firmware, settings and native schedule/playlist management protocols. This is
   not a claim of complete offline parity with every function in the vendor app.
-- Extend the behavior suite to 69 tests with functional Given/When/Then assertions.
+- Extend the behavior suite to 71 tests with functional Given/When/Then assertions.
 
 ## 1.5.2 — 2026-09-06
 

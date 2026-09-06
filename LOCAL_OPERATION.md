@@ -106,6 +106,10 @@ backup of the original entry, not by this portable content import alone.
 using the normal light `target`. Patterns can target a zone; designs must target
 the controller. It plays immediately without saving a catalog item.
 
+Custom content receives generated identity fields and default brightness, speed,
+direction and background values when omitted. Direction values 0–5 are accepted,
+matching the patterns observed in the vendor catalog.
+
 Local edits and imported libraries are stored separately from vendor catalogs,
 so a subsequent cloud refresh cannot erase them. Local data is included in HA's
 `.storage/gemstone_lights.<entry_id>` backup. Do not edit that storage manually.
