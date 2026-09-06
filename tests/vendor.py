@@ -24,6 +24,8 @@ class Vendor:
         self.failures = {}
         self.cloud_offline = False
         self.echo_writes = True
+        self.first_write_started = None
+        self.release_first_write = None
         cloud = re.compile(r"https://mytpybpq12\.execute-api\.us-west-2\.amazonaws\.com/.*")
         local = re.compile(r"http://192\.0\.2\.\d+/.*")
         http.get(cloud, callback=self.cloud, repeat=True)
@@ -31,7 +33,7 @@ class Vendor:
         http.get(local, callback=self.local, repeat=True)
         http.post(local, callback=self.local, repeat=True)
 
-    def cloud(self, url, **kwargs):
+    async def cloud(self, url, **kwargs):
         path = url.path.removeprefix("/prod")
         query_path = f"{path}?{url.query_string}"
         if query_path in self.failures:
@@ -42,6 +44,9 @@ class Vendor:
         if "json" in kwargs and kwargs["json"] is not None:
             body = deepcopy(kwargs["json"])
             self.writes.append(("cloud", device, path, body))
+            if len(self.writes) == 1 and self.release_first_write is not None:
+                self.first_write_started.set()
+                await self.release_first_write.wait()
             if self.echo_writes and path != "/deviceControl/deviceSettings":
                 if "onState" in body:
                     self.states.setdefault(device, {}).update(body)
