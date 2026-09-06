@@ -25,6 +25,8 @@ APP_HEADERS: Final = {
 }
 
 # --- Integration -----------------------------------------------------------
+CONF_LOCAL_ONLY: Final = "local_only"
+CONF_LOCAL_DEVICE: Final = "local_device"
 CONF_EMAIL: Final = "email"
 CONF_PASSWORD: Final = "password"
 

@@ -1,9 +1,8 @@
 """Data coordinator for Gemstone Lights.
 
-State and commands prefer the controller's local HTTP API and fall back to
-Gemstone's cloud. The cloud is still required for things the controller does
-not serve: account discovery, saved designs, zone definitions and the pattern
-catalog.
+State and commands use the controller's local HTTP API. Optional account mode
+adds cloud discovery, catalog import and fallback; local-only mode makes no
+cloud requests. User-owned content is persisted independently in Home Assistant.
 """
 
 from __future__ import annotations
@@ -27,9 +26,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
+from .catalog import LocalCatalog
 from .commands import serialized
 from .const import (
     CATALOG_REFRESH_INTERVAL,
+    CONF_LOCAL_DEVICE,
     DATA_DESIGNS,
     DATA_DEVICES,
     DATA_INFO,
@@ -59,7 +60,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        api: GemstoneApi,
+        api: GemstoneApi | None,
         *,
         host_override: str | None = None,
         host_device_id: str | None = None,
@@ -76,16 +77,17 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
         )
         self.api = api
+        self.catalog = LocalCatalog(self)
         self._host_override = host_override
         self._host_device_id = host_device_id
-        self._prefer_local = prefer_local
-        self._enable_local = enable_local
-        self._enable_library = enable_library
+        self._prefer_local = prefer_local or api is None
+        self._enable_local = enable_local and api is not None
+        self._enable_library = enable_library and api is not None
         self._enable_attempted: set[str] = set()
         self._enable_retry_after: dict[str, datetime] = {}
         self._known_devices: list[dict[str, Any]] = []
         self._discovery_next: datetime | None = None
-        self._cloud_available = True
+        self._cloud_available = api is not None
         self._reauth_started = False
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
         self._saved_cache: dict[str, Any] | None = None
@@ -123,7 +125,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Restore discovery before attempting any cloud authentication."""
         cached = await self._store.async_load()
         if not isinstance(cached, dict):
-            return
+            if CONF_LOCAL_DEVICE not in self.config_entry.data:
+                return
+            cached = {"devices": [self.config_entry.data[CONF_LOCAL_DEVICE]]}
+        self.catalog.restore(cached.get("local_catalog"))
         devices = cached.get("devices", [])
         if not isinstance(devices, list) or any(
             not isinstance(d, dict) or not d.get("id") for d in devices
@@ -175,6 +180,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cached = deepcopy(
             {
                 "devices": devices,
+                "local_catalog": self.catalog.data,
                 "zones": self._zones,
                 "designs": self._designs,
                 "patterns": self._patterns,
@@ -258,7 +264,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def zones(self, device_id: str) -> list[dict[str, Any]]:
         """Return the zones configured on a controller."""
-        return self._zones.get(device_id, [])
+        return self.catalog.merge("zone", device_id, self._zones.get(device_id, []))
 
     def device_info_raw(self, device_id: str) -> dict[str, Any]:
         """Return the raw controller record from the cloud."""
@@ -280,11 +286,17 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def designs(self, device_id: str) -> list[dict[str, Any]]:
         """Return saved designs for a controller."""
-        return (self.data or {}).get(DATA_DESIGNS, {}).get(device_id, [])
+        return self.catalog.merge(
+            "design",
+            device_id,
+            (self.data or {}).get(DATA_DESIGNS, {}).get(device_id, []),
+        )
 
     def patterns(self) -> list[dict[str, Any]]:
         """Return the account's patterns."""
-        return (self.data or {}).get(DATA_PATTERNS, [])
+        return self.catalog.merge(
+            "pattern", None, (self.data or {}).get(DATA_PATTERNS, [])
+        )
 
     def settings(self, device_id: str) -> dict[str, Any]:
         """Return hub settings read locally (empty when cloud-only)."""
@@ -355,7 +367,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Back off after a failure rather than stalling every poll.
         retry_after = self._local_retry_after.get(device_id)
-        if retry_after and dt_util.utcnow() < retry_after:
+        if self.api is not None and retry_after and dt_util.utcnow() < retry_after:
             return None
 
         existing = self._local.get(device_id)
@@ -376,6 +388,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_enable_local(self, device_id: str) -> None:
         """Switch on the controller's local commands via the cloud."""
         try:
+            if self.api is None:
+                return
             await self.api.async_set_local_enabled(device_id, True)
         except GemstoneError as err:
             self._handle_cloud_error(err)
@@ -484,7 +498,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except GemstoneLocalError as err:
                 if self._local_ok.get(device_id) is not False:
                     _LOGGER.warning(
-                        "Gemstone %s: local control unavailable (%s), using cloud",
+                        "Gemstone %s: local control unavailable (%s)",
                         device_id,
                         err,
                     )
@@ -493,6 +507,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     dt_util.utcnow() + LOCAL_RETRY_BACKOFF
                 )
 
+        if self.api is None:
+            raise GemstoneError(
+                "Controller unavailable locally; cloud access is disabled"
+            )
         if self._reauth_started:
             raise GemstoneAuthError("Gemstone account needs reauthentication")
         return await self.api.async_get_state(device_id)
@@ -506,8 +524,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch controller state (and the catalog when due)."""
         try:
             now = dt_util.utcnow()
-            if not self._reauth_started and (
-                self._discovery_next is None or now >= self._discovery_next
+            if (
+                self.api is not None
+                and not self._reauth_started
+                and (self._discovery_next is None or now >= self._discovery_next)
             ):
                 self._discovery_next = now + timedelta(minutes=1)
                 try:
@@ -538,6 +558,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if (
                 due
+                and self.api is not None
                 and self._cloud_available
                 and (
                     self._catalog_retry_after is None
@@ -552,6 +573,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if (
                 library_due
+                and self.api is not None
                 and self._cloud_available
                 and (
                     self._library_retry_after is None
@@ -685,7 +707,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
             except GemstoneLocalError as err:
                 _LOGGER.warning(
-                    "Gemstone %s: local command failed (%s), retrying via cloud",
+                    "Gemstone %s: local command failed (%s)",
                     device_id,
                     err,
                 )
@@ -695,6 +717,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
         try:
+            if self.api is None:
+                raise GemstoneError(
+                    "Command could not be sent locally; cloud access is disabled"
+                )
             if self._reauth_started:
                 raise GemstoneAuthError("Gemstone account needs reauthentication")
             await cloud_coro()
@@ -781,6 +807,27 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if payload.get("zonePatterns")
             else payload
         )
+        if local_payload is None:
+            vendor_ranges = {
+                zone["id"]: tuple(zone["lights"][-2:])
+                for zone in self._zones.get(device_id, [])
+                if zone.get("id") and len(zone.get("lights", [])) >= 3
+            }
+            ranges = self.zone_ranges(device_id)
+            if any(
+                vendor_ranges.get(zone["zoneId"]) != ranges.get(zone["zoneId"])
+                or zone["zoneId"] not in vendor_ranges
+                for zone in payload.get("zonePatterns", [])
+            ):
+                raise HomeAssistantError(
+                    "New or resized HA zones support motionless palettes only; "
+                    "native animated zones must already be configured on the controller"
+                )
+            if self.api is None:
+                raise HomeAssistantError(
+                    "Local animated zones are verified on Hub2 firmware 1.1.5 only; "
+                    "cloud access is disabled"
+                )
         await self._async_command(
             device_id,
             (
@@ -849,7 +896,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for entries in grouped.values():
             entries.sort(key=lambda e: e["name"])
-        self._library = grouped
+        self._library = {**grouped, **self.catalog.data["library"]}
+        self._library_folders.update(self.catalog.data["library_folders"])
         self._library_refreshed = dt_util.utcnow()
         self._library_retry_after = None
         _LOGGER.debug(
@@ -1070,7 +1118,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_play_zones(
         self, device_id: str, entries: dict[str, dict[str, Any]]
     ) -> None:
-        """Send the full zone layout, translating only supported solid layouts."""
+        """Send the complete layout while preserving neighboring zone content."""
         if not entries:
             await self.async_set_power(device_id, False)
             return
@@ -1086,37 +1134,63 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _local_zone_design(
         self, device_id: str, design: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """Translate verified single-color solid zones, preserving their effective brightness."""
+        """Render static palettes locally or use verified firmware-native animations."""
         ranges = self.zone_ranges(device_id)
         patterns = {
             entry["zoneId"]: entry["pattern"] for entry in design["zonePatterns"]
         }
-        if not patterns or not all(
-            zid in ranges
-            and len(pattern.get("colors") or []) == 1
-            and pattern.get("animation") in (EFFECT_SOLID, "motionless")
-            for zid, pattern in patterns.items()
-        ):
+        if not patterns or not all(zid in ranges for zid in patterns):
             return None
+        if any(
+            pattern.get("animation") not in (EFFECT_SOLID, "motionless")
+            for pattern in patterns.values()
+        ):
+            # Hub2 1.1.5 was verified physically to render native zonePatterns
+            # over LAN. Zone IDs must already belong to the controller; HA-only
+            # ranges cannot create firmware zone definitions through this API.
+            firmware = str(self.settings(device_id).get("firmware") or "")
+            vendor_ranges = {
+                zone["id"]: tuple(zone["lights"][-2:])
+                for zone in self._zones.get(device_id, [])
+                if zone.get("id") and len(zone.get("lights", [])) >= 3
+            }
+            if firmware == "1.1.5" and all(
+                vendor_ranges.get(zid) == ranges[zid] for zid in patterns
+            ):
+                return deepcopy(design)
+            return None
+        # Expand a motionless palette into explicit pixels. This works for
+        # newly created HA-only zones as well as controller-defined zones.
+        static = [
+            {
+                **deepcopy(item),
+                "color": scale_color(item["color"], design.get("brightness", 255)),
+            }
+            for item in design.get("staticColors") or []
+        ]
+        for zid, pattern in patterns.items():
+            colors = pattern.get("colors") or [0]
+            start, end = ranges[zid]
+            groups: dict[int, list[int]] = {}
+            for pixel in range(start, end + 1):
+                color = scale_color(
+                    colors[(pixel - start) % len(colors)],
+                    round(
+                        pattern.get("brightness", 255)
+                        * design.get("brightness", 255)
+                        / 255
+                    ),
+                )
+                groups.setdefault(color, []).append(pixel)
+            static.extend(
+                {"lights": lights, "color": color} for color, lights in groups.items()
+            )
         return {
             "id": design.get("id") or str(uuid.uuid4()),
             "name": design.get("name") or "Home Assistant Zones",
             "preview": False,
             "brightness": 255,
-            "staticColors": [
-                {
-                    "lights": list(range(ranges[zid][0], ranges[zid][1] + 1)),
-                    "color": scale_color(
-                        pattern["colors"][0],
-                        round(
-                            pattern.get("brightness", 255)
-                            * design.get("brightness", 255)
-                            / 255
-                        ),
-                    ),
-                }
-                for zid, pattern in patterns.items()
-            ],
+            "staticColors": static,
         }
 
     @serialized

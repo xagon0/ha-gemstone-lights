@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.6.0 — 2026-09-06
+
+- Add account-free setup by LAN address and an explicit option that disables all
+  cloud authentication, discovery, catalog refreshes and command fallback.
+- Add local pattern/design/zone editing, current-content saving, custom playback,
+  portable catalog import/export and protection from cloud catalog overwrites.
+- Render existing native animated zones over LAN on verified Hub2 firmware 1.1.5.
+  Direct controller commands and timed camera frames confirmed chase movement.
+- Expand motionless zone palettes into explicit pixels, supporting new HA-only
+  static zones. Reject new/resized native animated zones until a zone-definition
+  management protocol is verified.
+- Provide HA script/automation blueprints for playlists, weekly schedules and
+  sunset-to-sunrise operation, tested in the real HA automation engine.
+- Request separate HTTP connections to avoid observed embedded-server stalls.
+- Fill in firmware-required identity/default fields for custom content and retain
+  all six direction values observed in the live vendor catalog.
+- Document a complete capability inventory and unresolved provisioning, music,
+  firmware, settings and native schedule/playlist management protocols. This is
+  not a claim of complete offline parity with every function in the vendor app.
+- Extend the behavior suite to 71 tests with functional Given/When/Then assertions.
+
 ## 1.5.2 — 2026-09-06
 
 - Retain logical zone colors and brightness after master dimming through the

@@ -99,7 +99,17 @@ class Vendor:
         if "data" in kwargs:
             playing = json.loads(kwargs["data"])["state"]["desired"]["currentlyPlaying"]
             self.writes.append(("local", device, url.path, deepcopy(playing)))
-            if self.echo_writes:
+            native_zones = (playing.get("architectural") or {}).get(
+                "zonePatterns"
+            ) or []
+            missing_identity = any(
+                not (zone.get("pattern") or {}).get("id")
+                or not (zone.get("pattern") or {}).get("name")
+                for zone in native_zones
+            )
+            # Hub2 1.1.5 acknowledges but does not apply native zone patterns
+            # without identity fields (observed during 1.6.0 candidate testing).
+            if self.echo_writes and not missing_identity:
                 self.states.setdefault(device, {}).update(playing)
             return CallbackResult(status=200)
         key = (

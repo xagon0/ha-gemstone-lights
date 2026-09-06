@@ -47,7 +47,9 @@ class GemstoneLocalApi:
         url = f"http://{self._host}{path}"
         try:
             async with self._session.get(
-                url, timeout=aiohttp.ClientTimeout(total=LOCAL_TIMEOUT)
+                url,
+                headers={"Connection": "close"},
+                timeout=aiohttp.ClientTimeout(total=LOCAL_TIMEOUT),
             ) as resp:
                 if resp.status >= 400:
                     raise GemstoneLocalError(f"GET {path} returned {resp.status}")
@@ -108,7 +110,7 @@ class GemstoneLocalApi:
             async with self._session.post(
                 url,
                 data=encoded,
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "Connection": "close"},
                 timeout=aiohttp.ClientTimeout(total=LOCAL_TIMEOUT),
             ) as resp:
                 if resp.status >= 400:

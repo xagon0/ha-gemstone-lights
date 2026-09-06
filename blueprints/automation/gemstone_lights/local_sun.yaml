@@ -1,0 +1,48 @@
+blueprint:
+  name: Gemstone local sunset to sunrise
+  description: >-
+    Play a pattern or design from sunset to sunrise using HA's locally calculated
+    sun position. Reconcile on HA startup. Requires the Sun integration and HA
+    to remain running. No vendor calendar or internet request is used.
+  domain: automation
+  input:
+    controller:
+      name: Controller
+      selector:
+        entity:
+          integration: gemstone_lights
+          domain: light
+    kind:
+      name: Content kind
+      default: pattern
+      selector:
+        select:
+          options: [pattern, design]
+    content:
+      name: Pattern or design object
+      selector:
+        object:
+mode: restart
+triggers:
+  - trigger: state
+    entity_id: sun.sun
+    to: [above_horizon, below_horizon]
+  - trigger: homeassistant
+    event: start
+conditions:
+  - condition: template
+    value_template: "{{ states('sun.sun') in ['above_horizon', 'below_horizon'] }}"
+actions:
+  - choose:
+      - conditions: "{{ is_state('sun.sun', 'below_horizon') }}"
+        sequence:
+          - action: gemstone_lights.play_content
+            target:
+              entity_id: !input controller
+            data:
+              kind: !input kind
+              content: !input content
+    default:
+      - action: light.turn_off
+        target:
+          entity_id: !input controller

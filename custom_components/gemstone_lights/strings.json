@@ -3,10 +3,9 @@
     "step": {
       "user": {
         "title": "Gemstone Lights",
-        "description": "Sign in with the same account you use in the Gemstone Lights app.",
-        "data": {
-          "email": "Email",
-          "password": "Password"
+        "menu_options": {
+          "local": "Local controller (no account or internet)",
+          "cloud": "Import from a Gemstone account"
         }
       },
       "reauth_confirm": {
@@ -15,15 +14,33 @@
         "data": {
           "password": "Password"
         }
+      },
+      "cloud": {
+        "title": "Gemstone Lights",
+        "description": "Sign in with the same account you use in the Gemstone Lights app.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "local": {
+        "title": "Local controller",
+        "description": "Enter the address of a Hub2 with Allow Local Commands already enabled. No Gemstone sign-in is used. Reserve its address in your router. Use the options on an existing account entry to keep its entities and cached content.",
+        "data": {
+          "host": "Controller IP address or hostname",
+          "name": "Name"
+        }
       }
     },
     "error": {
       "invalid_auth": "Invalid email or password.",
       "cannot_connect": "Could not reach the Gemstone cloud.",
-      "unknown": "Unexpected error. Check the Home Assistant log."
+      "unknown": "Unexpected error. Check the Home Assistant log.",
+      "invalid_host": "Enter an IPv4 address or hostname without a URL, port, or path.",
+      "cannot_connect_local": "Could not read this controller over LAN. Check its address and enable Allow Local Commands in the Gemstone app."
     },
     "abort": {
-      "already_configured": "This Gemstone account is already set up.",
+      "already_configured": "This account or controller is already configured.",
       "reauth_successful": "Re-authentication was successful."
     }
   },
@@ -57,19 +74,21 @@
     "step": {
       "init": {
         "title": "Local control",
-        "description": "Prefer local control and optionally enable it on the controller. Addresses are discovered automatically. To override an address, select the controller it belongs to.",
+        "description": "Local-only mode keeps cached content and disables authentication, discovery, downloads and cloud fallback. Local setup entries always remain local-only. A controller must already allow local commands.",
         "data": {
           "prefer_local": "Use local control when available",
           "host": "Controller IP address (optional)",
           "enable_local": "Switch on local control on the controller if it is off",
           "enable_library": "Load Gemstone's official pattern library",
-          "host_device_id": "Controller for the address override"
+          "host_device_id": "Controller for the address override",
+          "local_only": "Disable all Gemstone cloud access"
         }
       }
     },
     "error": {
       "invalid_host": "Enter an IPv4 address or hostname without a URL, port, or path.",
-      "select_controller": "Select the controller this address belongs to."
+      "select_controller": "Select the controller this address belongs to.",
+      "missing_local_address": "Every controller needs a known LAN address before cloud access can be disabled."
     }
   },
   "services": {
@@ -84,6 +103,102 @@
         "folder": {
           "name": "Folder",
           "description": "Optional library folder to search within."
+        }
+      }
+    },
+    "save_content": {
+      "name": "Save local content",
+      "description": "Create or replace a pattern, design or zone in Home Assistant. Vendor catalogs are unchanged.",
+      "fields": {
+        "kind": {
+          "name": "Kind",
+          "description": "pattern, design or zone"
+        },
+        "name": {
+          "name": "Name",
+          "description": "Saving the same name replaces the local item."
+        },
+        "content": {
+          "name": "Content",
+          "description": "Pattern/design object, or a zone object with inclusive start and end pixel indices (0\u20134095)."
+        },
+        "folder": {
+          "name": "Folder",
+          "description": "Optional label for a saved pattern."
+        },
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "delete_content": {
+      "name": "Delete local content",
+      "description": "Delete a local item. An imported vendor item with the same name becomes visible again.",
+      "fields": {
+        "kind": {
+          "name": "Kind",
+          "description": "The type of item to delete."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The local name to delete."
+        },
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "export_catalog": {
+      "name": "Export catalog",
+      "description": "Return patterns, designs, zones and downloaded library content for a portable local backup.",
+      "fields": {
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "import_catalog": {
+      "name": "Import catalog",
+      "description": "Merge a version 1 export into local storage. Matching names are replaced after the entire input validates.",
+      "fields": {
+        "catalog": {
+          "name": "Catalog",
+          "description": "The object returned by Export catalog."
+        },
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "save_current": {
+      "name": "Save current content",
+      "description": "Save the current pattern, solid color or design to the local catalog.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name for the saved pattern or design."
+        },
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "play_content": {
+      "name": "Play custom content",
+      "description": "Play a pattern or design object without saving it. Patterns may target a zone; designs require the whole controller.",
+      "fields": {
+        "kind": {
+          "name": "Kind",
+          "description": "pattern or design"
+        },
+        "content": {
+          "name": "Content",
+          "description": "The pattern or design object to play."
         }
       }
     }

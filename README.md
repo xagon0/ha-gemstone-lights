@@ -6,9 +6,10 @@ A custom integration for [Gemstone Lights](https://www.gemstonelights.com/)
 permanent outdoor lighting, controlling the **Hub2** controller from Home
 Assistant.
 
-Gemstone does not publish an API (one is expected in 2027). This integration
-drives the controller **directly over your LAN** where possible, falling back
-to Gemstone's cloud for the things only the cloud can answer.
+Control Hub2 directly over your LAN, with optional Gemstone account import and
+cloud fallback. **Local-only mode needs no account and makes no Gemstone cloud
+requests.** See [Local operation](LOCAL_OPERATION.md) for offline setup, content
+editing, playlists, schedules, evidence and the remaining protocol gaps.
 
 ## Features
 
@@ -21,19 +22,22 @@ to Gemstone's cloud for the things only the cloud can answer.
   picked up without reconfiguring anything. This is how you drive front and
   back independently.
 - **Effect speed** - a slider that also re-applies the running effect.
-- **Design select** - play any design saved in the Gemstone app.
-- **Pattern select** - play any pattern saved in your account's folders.
+- **Design select** - play locally saved or imported architectural designs.
+- **Pattern select** - play locally created or imported patterns.
 - **The whole official library** - Gemstone publishes well over a thousand
   patterns. Browsing them is split across two dropdowns, *Library folder* and
   *Library pattern*, because no single list of that size is usable. Automations
   can reach any of them directly with the `play_library_pattern` service.
 - **Now playing sensor** - what the controller is currently showing, plus
   firmware, output names and local IP as attributes.
-- Devices and zones are discovered automatically across every homegroup.
+- Optional account import discovers controllers and zones across homegroups.
+- **Local editing and backups** - create patterns, designs and static zones; save
+  current content; import and export portable catalogs.
+- **Local automation blueprints** - playlists, weekly schedules and sunset/sunrise.
 - **Local control** - commands go straight to the controller on your network,
   so they apply immediately and keep working when the internet is down. The
-  address is discovered automatically; the cloud is used only as a fallback and
-  for the saved-design/pattern catalog.
+  address can be entered manually or imported from an account. Cloud fallback
+  and downloads are disabled completely in local-only mode.
 
 Effects and colours are built on the fly, so you are not limited to patterns
 you saved in the app first.
@@ -56,72 +60,45 @@ Copy `custom_components/gemstone_lights` into your Home Assistant
 
 ## Setup
 
-**Settings → Devices & Services → Add Integration → Gemstone Lights**, then sign
-in with the same email and password you use in the Gemstone Lights app.
+**Settings → Devices & Services → Add Integration → Gemstone Lights** offers:
 
-Your credentials are stored in the config entry so the integration can renew its
-session; Gemstone's tokens are short-lived and its refresh tokens expire after
-roughly 30 days. If the password ever changes, Home Assistant will prompt you to
-re-authenticate.
+- **Local controller**: enter a provisioned Hub2's address. Local commands must
+  already be enabled. No Gemstone credentials are requested.
+- **Import from a Gemstone account**: sign in to discover devices, zones and
+  catalogs. Credentials are stored in the config entry for optional cloud access.
+
+For an existing entry, choose **Configure → Disable all Gemstone cloud access**
+to preserve its entities and cached content while switching to offline operation.
+Reserve the controller's DHCP address. The options form can override an address
+for the selected controller without changing entity IDs.
 
 ## Local control
 
-Nothing to set up. You sign in with your Gemstone account and that is it.
+"Allow Local Commands" (Device Settings → Advanced Settings in the Gemstone app)
+opens the controller's HTTP port. Account mode can enable it through the cloud;
+local-only mode requires it to be enabled beforehand. The Now playing sensor's
+`control` attribute reports the selected path.
 
-"Allow Local Commands" (Device Settings → Advanced Settings in the Gemstone
-app) is what opens the controller's HTTP port. That switch can also be set
-through the cloud, so if it is off the integration turns it on for you. Untick
-**Switch on local control on the controller** in the integration's options if
-you would rather set it yourself in the app. The controller reports its own LAN address and
-whether local commands are enabled to Gemstone, so the integration reads both
-from your account and switches to local by itself, with no IP to type in. The *Now playing* sensor's `control` attribute shows which
-path is in use.
+Known addresses, zones, patterns, designs and library content are persisted.
+Local-only mode restores them without logging in or refreshing cloud catalogs.
+Failed local reads mark the controller unavailable and retry on the next poll;
+commands never fall back to the cloud while it is disabled.
 
-If the controller moves to a new address, the integration notices and follows
-it. If it cannot be reached — local commands switched off, or Home Assistant on
-a network that cannot see it — it stays on the cloud and retries every few
-minutes rather than delaying each update.
+Verified on Hub2 firmware 1.1.5:
 
-To pin an address or force the cloud, use **Configure** on the integration.
-An address override belongs to the controller selected in that form. Legacy
-overrides are used automatically only when an account has one controller;
-accounts with multiple controllers must select which controller to override.
+| Feature | Local path |
+| --- | --- |
+| Power, RGBW, brightness, whole-run animations | Direct controller commands |
+| Static zone palettes, including new HA zones | Explicit pixel colors |
+| Existing animated controller zones | Native `zonePatterns` |
+| Pattern/design editing and saved content | HA local catalog |
+| Playlists and schedules | Included HA blueprints; HA must remain running |
+| Firmware and output settings | Read only |
 
-### Restarting without internet
-
-After one successful online discovery, controller addresses, zones, and catalogs
-are saved in Home Assistant's local storage. A restart can then load known
-controllers and read their state over the LAN without first logging in to the
-cloud. Passwords and session tokens are not copied into this cache.
-
-Local commands must already be enabled, and the controller must still be reachable
-at its saved or configured address. Discovery of a changed DHCP address, initial
-account setup, catalog refreshes, and cloud-only commands still require internet.
-If cloud credentials expire, Home Assistant asks you to sign in again while
-reachable local controllers remain usable.
-
-### What each path can do
-
-Verified against a Hub2 on firmware 1.1.5.
-
-| | Local | Cloud |
-| --- | --- | --- |
-| On/off | yes | yes |
-| Solid colour | yes, with a real brightness field | yes, brightness folded into the colour |
-| Animated pattern (whole run) | yes | yes |
-| Per-zone solid colour | yes, via `staticColors` | yes |
-| Per-zone animated effect | no | yes |
-| Saved designs, zones, pattern catalog | no | yes |
-| Firmware, pixel counts, RGBW order | yes | no |
-
-The controller understands `staticColors` (explicit pixel indices) but not
-`zonePatterns`; zones are a cloud concept that the cloud expands into pixel
-ranges. So an all-solid zone layout is sent locally, and a layout containing
-any animation is sent through the cloud. The integration picks per command.
-
-The cloud is also still used for account discovery, saved designs, zone
-definitions and the pattern catalog, because the controller does not serve
-those.
+New native animated-zone definitions, firmware updates, music sync and first-time
+controller provisioning remain unresolved. Full details and evidence are in
+[Local operation](LOCAL_OPERATION.md). The earlier claim that Hub2 cannot render
+`zonePatterns` locally was disproved by direct LAN and camera tests.
 
 ### A quirk worth knowing
 
@@ -132,9 +109,10 @@ later rather than being lost.
 
 ## The pattern library
 
-Gemstone's official library is fetched from your account and refreshed daily:
+In account mode, Gemstone's official library is fetched and refreshed daily:
 roughly 1,700 patterns across 68 folders, grouped into categories such as
-sports, holidays and everyday.
+sports, holidays and everyday. Downloaded or imported content remains usable
+offline; local-only mode never refreshes it from the vendor.
 
 Pick a folder in **Library folder**, then a pattern in **Library pattern**;
 choosing a folder does not change the lights. From an automation, skip the
@@ -184,7 +162,8 @@ it loaded.
   reporting a false off state.
 - **Changing speed while off leaves the lights off.** It stores the speed for
   future effects; running patterns are updated immediately.
-- **Music mode and playlists** are not implemented.
+- **Music mode and native controller playlist management** remain unimplemented.
+  HA-based playlists are provided as a script blueprint.
 
 ## Development
 

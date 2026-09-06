@@ -1,0 +1,51 @@
+blueprint:
+  name: Gemstone local playlist
+  description: >-
+    Play patterns or designs in sequence using HA and LAN commands. HA must stay
+    running. Stop this script to stop advancing; the last frame keeps playing.
+    Each step is an object with kind (pattern or design), content (the pattern or
+    design object), and seconds (at least 2). Restarting HA stops the playlist;
+    start the script from an HA-start automation if desired.
+  domain: script
+  input:
+    controller:
+      name: Controller
+      selector:
+        entity:
+          integration: gemstone_lights
+          domain: light
+    steps:
+      name: Playlist steps
+      selector:
+        object:
+    loops:
+      name: Number of passes (0 repeats until stopped)
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 10000
+          mode: box
+mode: restart
+variables:
+  playlist_steps: !input steps
+  playlist_loops: !input loops
+sequence:
+  - condition: template
+    value_template: "{{ playlist_steps | count > 0 }}"
+  - repeat:
+      while:
+        - condition: template
+          value_template: "{{ playlist_loops | int == 0 or repeat.index <= playlist_loops | int }}"
+      sequence:
+        - repeat:
+            for_each: "{{ playlist_steps }}"
+            sequence:
+              - action: gemstone_lights.play_content
+                target:
+                  entity_id: !input controller
+                data:
+                  kind: "{{ repeat.item.kind }}"
+                  content: "{{ repeat.item.content }}"
+              - delay:
+                  seconds: "{{ [2, repeat.item.seconds | float(2)] | max }}"
