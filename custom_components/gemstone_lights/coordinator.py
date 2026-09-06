@@ -1005,7 +1005,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for zone in self.zones(device_id)
                 if zone.get("id")
             }
-        if "zonePatterns" in design:
+        if design.get("zonePatterns") is not None:
             entries = {
                 entry["zoneId"]: deepcopy(entry)
                 for entry in design["zonePatterns"]

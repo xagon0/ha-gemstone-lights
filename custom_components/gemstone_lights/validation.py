@@ -4,7 +4,7 @@ from typing import Any
 
 
 def _brightness(value: Any) -> None:
-    if value is not None and (type(value) is not int or not 0 <= value <= 255):
+    if type(value) is not int or not 0 <= value <= 255:
         raise ValueError("Invalid brightness")
 
 
@@ -17,16 +17,18 @@ def validate_pattern(pattern: Any) -> None:
         type(c) is not int or not 0 <= c <= 0xFFFFFFFF for c in colors
     ):
         raise ValueError("Invalid pattern colors")
-    _brightness(pattern.get("brightness"))
+    _brightness(pattern.get("brightness", 255))
 
 
 def validate_design(design: Any) -> None:
     """Validate the zone/pixel collections used in rendering and command editing."""
     if not isinstance(design, dict):
         raise ValueError("Invalid design")
-    _brightness(design.get("brightness"))
+    _brightness(design.get("brightness", 255))
     for key in ("zonePatterns", "staticColors"):
-        entries = design.get(key) or []
+        entries = design.get(key, [])
+        if entries is None:
+            continue
         if not isinstance(entries, list) or any(
             not isinstance(e, dict) for e in entries
         ):
@@ -62,7 +64,7 @@ def validate_state(value: Any) -> dict[str, Any]:
     if color_b := value.get("colorB"):
         if color_b.get("value") is None:
             raise ValueError("Missing color value")
-        _brightness(color_b.get("brightness"))
+        _brightness(color_b.get("brightness", 255))
     validate_pattern(value.get("pattern") or {})
     validate_design(value.get("architectural") or {})
     return value

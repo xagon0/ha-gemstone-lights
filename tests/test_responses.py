@@ -23,6 +23,16 @@ from custom_components.gemstone_lights.local_api import (
                 "reported": {
                     "currentlyPlaying": {
                         "onState": True,
+                        "pattern": {"colors": [255], "brightness": None},
+                    }
+                }
+            }
+        },
+        {
+            "state": {
+                "reported": {
+                    "currentlyPlaying": {
+                        "onState": True,
                         "architectural": {"zonePatterns": ["broken"]},
                     }
                 }
