@@ -1,0 +1,55 @@
+blueprint:
+  name: Gemstone local weekly schedule
+  description: >-
+    Follow a Home Assistant Schedule helper without the internet. Apply a saved
+    pattern/design object while the schedule is on and switch off when it ends.
+    Reconcile the current schedule after HA starts. HA must stay running.
+  domain: automation
+  input:
+    schedule:
+      name: Schedule helper
+      selector:
+        entity:
+          domain: schedule
+    controller:
+      name: Controller
+      selector:
+        entity:
+          integration: gemstone_lights
+          domain: light
+    kind:
+      name: Content kind
+      default: pattern
+      selector:
+        select:
+          options: [pattern, design]
+    content:
+      name: Pattern or design object
+      selector:
+        object:
+mode: restart
+variables:
+  schedule_entity: !input schedule
+triggers:
+  - trigger: state
+    entity_id: !input schedule
+    to: ["on", "off"]
+  - trigger: homeassistant
+    event: start
+conditions:
+  - condition: template
+    value_template: "{{ states(schedule_entity) in ['on', 'off'] }}"
+actions:
+  - choose:
+      - conditions: "{{ is_state(schedule_entity, 'on') }}"
+        sequence:
+          - action: gemstone_lights.play_content
+            target:
+              entity_id: !input controller
+            data:
+              kind: !input kind
+              content: !input content
+    default:
+      - action: light.turn_off
+        target:
+          entity_id: !input controller
