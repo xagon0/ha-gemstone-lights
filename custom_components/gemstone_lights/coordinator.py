@@ -486,6 +486,17 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Remember the desired animation speed."""
         self._speeds[device_id] = max(0, min(255, int(value)))
 
+    @serialized
+    async def async_set_speed(self, device_id: str, value: int) -> None:
+        """Apply speed to active patterns, and only store it while off."""
+        self.set_speed(device_id, value)
+        state = self.device_state(device_id)
+        if state.get("onState") and (pattern := state.get("pattern")):
+            await self.async_play_pattern(device_id, {**pattern, "speed": self.speed(device_id)})
+        else:
+            await self._async_save_cache()
+            self.async_update_listeners()
+
     def build_pattern(
         self,
         device_id: str,
