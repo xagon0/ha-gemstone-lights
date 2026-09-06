@@ -46,7 +46,7 @@ from .const import (
     LOCAL_WRITE_GAP,
 )
 from .local_api import GemstoneLocalApi, GemstoneLocalError
-from .state import same_content, scale_color
+from .state import encode_cloud_design, same_content, scale_color
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -658,6 +658,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cloud_coro,
         state: dict[str, Any],
         local_state: dict[str, Any] | None = None,
+        cloud_state: dict[str, Any] | None = None,
     ) -> None:
         """Run a command locally when possible, else via the cloud.
 
@@ -693,7 +694,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._handle_cloud_error(err)
             raise
         self._last_write[device_id] = monotonic()
-        self._publish_command(device_id, state)
+        self._publish_command(device_id, state, cloud_state)
         await self._async_save_cache()
 
     @serialized
@@ -708,6 +709,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             (lambda: client.async_set_power(on)) if client else None,
             lambda: self.api.async_set_power(device_id, on),
             {**self.device_state(device_id), "onState": on},
+            {**wire, "onState": on},
             {**wire, "onState": on},
         )
 
@@ -760,6 +762,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Play an architectural design."""
         client = self._local.get(device_id)
         payload = {**design, "preview": False}
+        cloud_payload = encode_cloud_design(payload)
         local_payload = (
             self._local_zone_design(device_id, payload)
             if payload.get("zonePatterns")
@@ -774,11 +777,12 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if client and local_payload is not None
             else None,
-            lambda: self.api.async_play_design(device_id, design),
+            lambda: self.api.async_play_design(device_id, cloud_payload),
             {"onState": True, "architectural": deepcopy(payload)},
             {"onState": True, "architectural": local_payload}
             if local_payload
             else None,
+            {"onState": True, "architectural": cloud_payload},
         )
 
     @serialized
