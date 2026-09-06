@@ -25,6 +25,7 @@ import aiohttp
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     API_BASE_URL,
@@ -42,7 +43,7 @@ _LOGGER = logging.getLogger(__name__)
 _TOKEN_LEEWAY = 120
 
 
-class GemstoneError(Exception):
+class GemstoneError(HomeAssistantError):
     """Base error for this integration."""
 
 

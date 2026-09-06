@@ -84,6 +84,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._known_devices: list[dict[str, Any]] = []
         self._discovery_next: datetime | None = None
         self._cloud_available = True
+        self._reauth_started = False
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
         self._saved_cache: dict[str, Any] | None = None
 
@@ -317,6 +318,14 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- polling ------------------------------------------------------------
 
+    def _handle_cloud_error(self, err: GemstoneError) -> None:
+        """Request new credentials once while keeping reachable local devices alive."""
+        if isinstance(err, GemstoneAuthError):
+            self._cloud_available = False
+            if not self._reauth_started:
+                self._reauth_started = True
+                self.config_entry.async_start_reauth(self.hass)
+
     async def _async_discover(self) -> list[dict[str, Any]]:
         """Find every controller across all homegroups on the account."""
         devices: list[dict[str, Any]] = []
@@ -336,6 +345,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 zones = await self.api.async_get_zones(device_id)
             except GemstoneError as err:
                 complete = False
+                self._handle_cloud_error(err)
                 _LOGGER.debug("Could not load catalog for %s: %s", device_id, err)
             else:
                 self._designs[device_id] = designs
@@ -343,6 +353,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         patterns: list[dict[str, Any]] = []
         try:
+            if self._reauth_started:
+                raise GemstoneAuthError("Gemstone account needs reauthentication")
             for folder in await self.api.async_get_folders():
                 folder_id = folder.get("folderId")
                 if not folder_id:
@@ -354,6 +366,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     patterns.append({"folder": folder.get("name") or "", "name": data["name"], "data": data})
         except GemstoneError as err:
             complete = False
+            self._handle_cloud_error(err)
             _LOGGER.debug("Could not load patterns: %s", err)
         else:
             self._patterns = patterns
@@ -392,6 +405,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._local_ok[device_id] = False
                 self._local_retry_after[device_id] = dt_util.utcnow() + LOCAL_RETRY_BACKOFF
 
+        if self._reauth_started:
+            raise GemstoneAuthError("Gemstone account needs reauthentication")
         return await self.api.async_get_state(device_id)
 
     def device_available(self, device_id: str) -> bool:
@@ -403,14 +418,15 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch controller state (and the catalog when due)."""
         try:
             now = dt_util.utcnow()
-            if self._discovery_next is None or now >= self._discovery_next:
+            if not self._reauth_started and (self._discovery_next is None or now >= self._discovery_next):
                 self._discovery_next = now + timedelta(minutes=1)
                 try:
                     discovered = await self._async_discover()
-                except GemstoneError:
+                except GemstoneError as err:
                     self._cloud_available = False
                     if not self._known_devices:
                         raise
+                    self._handle_cloud_error(err)
                     _LOGGER.debug("Cloud discovery unavailable; using cached controllers")
                 else:
                     new_devices = list({d["id"]: d for d in discovered if d.get("id")}.values())
@@ -457,9 +473,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 state = {**deepcopy(alias["logical"]), "onState": state["onState"]}
                             else:
                                 self._state_aliases.pop(device_id, None)
-                except GemstoneAuthError:
-                    raise
                 except GemstoneError as err:
+                    self._handle_cloud_error(err)
                     _LOGGER.debug("State fetch failed for %s: %s", device_id, err)
                     state = self.device_state(device_id)
                     available = False
@@ -559,7 +574,13 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     dt_util.utcnow() + LOCAL_RETRY_BACKOFF
                 )
 
-        await cloud_coro()
+        try:
+            if self._reauth_started:
+                raise GemstoneAuthError("Gemstone account needs reauthentication")
+            await cloud_coro()
+        except GemstoneAuthError as err:
+            self._handle_cloud_error(err)
+            raise
         self._last_write[device_id] = monotonic()
         self._publish_command(device_id, state)
         await self._async_save_cache()
@@ -681,6 +702,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             patterns = await self.api.async_get_library_patterns()
         except GemstoneError as err:
             _LOGGER.debug("Could not load the pattern library: %s", err)
+            self._handle_cloud_error(err)
             self._library_retry_after = dt_util.utcnow() + timedelta(minutes=5)
             return
 

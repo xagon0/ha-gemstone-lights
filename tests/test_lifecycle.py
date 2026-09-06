@@ -1,6 +1,8 @@
 """Run discovery and service behavior through real Home Assistant platforms."""
 
 from homeassistant.helpers import entity_registry as er
+from unittest.mock import patch
+from botocore.exceptions import ClientError
 
 
 async def test_new_controller_gets_every_platform_without_reload(hass, loaded_entry, vendor):
@@ -29,3 +31,23 @@ async def test_registered_library_service_respects_zone_entity_target(hass, load
     entries = {e["zoneId"]: e["pattern"] for e in vendor.writes[-1][3]["architectural"]["zonePatterns"]}
     assert entries["front"]["colors"] == [255, 65280]
     assert entries["back"]["colors"] == [255]
+
+
+async def test_cloud_reauthentication_keeps_local_entities_operational(hass, loaded_entry, vendor):
+    # Given an already-loaded local controller whose cloud credentials are rejected.
+    await loaded_entry.api.async_login()
+    vendor.failures["/homegroup/list"] = 401
+    loaded_entry._discovery_next = None
+    rejection = ClientError({"Error": {"Code": "NotAuthorizedException"}}, "InitiateAuth")
+    # When discovery exhausts authentication retry through the external Cognito SDK.
+    with patch("botocore.client.BaseClient._make_api_call", side_effect=rejection):
+        await loaded_entry.async_refresh()
+        await hass.async_block_till_done()
+    # Then HA asks for credentials once and the local light stays available and controllable.
+    flows = [flow for flow in hass.config_entries.flow.async_progress() if flow["context"]["source"] == "reauth"]
+    assert len(flows) == 1
+    entity_id = er.async_get(hass).async_get_entity_id("light", "gemstone_lights", "hub_light")
+    assert hass.states.get(entity_id).state == "on"
+    await hass.services.async_call("light", "turn_off", {"entity_id": entity_id}, blocking=True)
+    assert vendor.writes[-1][0] == "local"
+    assert not vendor.states["hub"]["onState"]
