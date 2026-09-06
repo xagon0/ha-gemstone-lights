@@ -156,3 +156,38 @@ async def test_overlapping_zone_edit_leaves_catalog_unchanged(coordinator):
         )
     # Then no ambiguous zone definition is stored.
     assert coordinator.catalog.data == before
+
+
+@pytest.mark.parametrize("direction", [0, 5])
+async def test_custom_zone_action_completes_native_pattern_fields(
+    hass, loaded_entry, vendor, direction
+):
+    # Given an existing controller zone and a short custom palette with a vendor direction value.
+    zone = er.async_get(hass).async_get_entity_id(
+        "light", "gemstone_lights", "hub_zone_front"
+    )
+    # When the user plays it without supplying firmware identity fields.
+    await hass.services.async_call(
+        "gemstone_lights",
+        "play_content",
+        {
+            "entity_id": zone,
+            "kind": "pattern",
+            "content": {
+                "colors": [65280, 0],
+                "animation": "chase",
+                "direction": direction,
+                "brightness": 80,
+            },
+        },
+        blocking=True,
+    )
+    # Then the firmware accepts the completed pattern and preserves its palette, orientation and level.
+    patterns = {
+        z["zoneId"]: z["pattern"]
+        for z in vendor.states["hub"]["architectural"]["zonePatterns"]
+    }
+    assert patterns["front"]["colors"] == [65280, 0]
+    assert patterns["front"]["direction"] == direction
+    assert patterns["front"]["brightness"] == 80
+    assert patterns["back"]["colors"] == [255]
