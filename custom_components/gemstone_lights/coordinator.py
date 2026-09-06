@@ -645,13 +645,15 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Play an architectural design."""
         client = self._local.get(device_id)
         payload = {**design, "preview": False}
+        local_payload = self._local_zone_design(device_id, payload) if payload.get("zonePatterns") else payload
         await self._async_command(
             device_id,
-            (lambda: client.async_play({"onState": True, "architectural": payload}))
-            if client and not payload.get("zonePatterns")
+            (lambda: client.async_play({"onState": True, "architectural": local_payload}))
+            if client and local_payload is not None
             else None,
             lambda: self.api.async_play_design(device_id, design),
             {"onState": True, "architectural": deepcopy(payload)},
+            {"onState": True, "architectural": local_payload} if local_payload else None,
         )
 
     @serialized
@@ -675,18 +677,6 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if design := state.get("architectural"):
             updated = {**design, "brightness": brightness}
-            # Zone designs keep a brightness per zone pattern as well.
-            if zone_patterns := design.get("zonePatterns"):
-                updated["zonePatterns"] = [
-                    {
-                        **entry,
-                        "pattern": {
-                            **(entry.get("pattern") or {}),
-                            "brightness": brightness,
-                        },
-                    }
-                    for entry in zone_patterns
-                ]
             await self.async_play_design(device_id, updated)
             return True
 
@@ -830,7 +820,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if zone_id:
                     result[zone_id] = {
                         "color": colors[0] if colors else 0,
-                        "brightness": pattern.get("brightness", 255),
+                        "brightness": round(pattern.get("brightness", 255) * design.get("brightness", 255) / 255),
                         "animation": pattern.get("animation") or EFFECT_SOLID,
                     }
             return result
@@ -876,11 +866,16 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for zone in self.zones(device_id) if zone.get("id")
             }
         if "zonePatterns" in design:
-            return {
+            entries = {
                 entry["zoneId"]: deepcopy(entry)
                 for entry in design["zonePatterns"]
                 if entry.get("zoneId") and isinstance(entry.get("pattern"), dict)
             }
+            if design.get("brightness", 255) != 255:
+                for entry in entries.values():
+                    pattern = entry["pattern"]
+                    pattern["brightness"] = round(pattern.get("brightness", 255) * design["brightness"] / 255)
+            return entries
         return {
             zone_id: {
                 "zoneId": zone_id,
@@ -904,33 +899,28 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "brightness": 255, "preview": False,
             "zonePatterns": list(entries.values()),
         }
+        await self.async_play_design(device_id, design)
+
+    def _local_zone_design(self, device_id: str, design: dict[str, Any]) -> dict[str, Any] | None:
+        """Translate verified single-color solid zones, preserving their effective brightness."""
         ranges = self.zone_ranges(device_id)
-        patterns = {zid: entry["pattern"] for zid, entry in entries.items()}
-        can_translate = all(
+        patterns = {entry["zoneId"]: entry["pattern"] for entry in design["zonePatterns"]}
+        if not patterns or not all(
             zid in ranges and len(pattern.get("colors") or []) == 1
             and pattern.get("animation") in (EFFECT_SOLID, "motionless")
             for zid, pattern in patterns.items()
-        )
-        client = self._local.get(device_id)
-        local_design = None
-        if can_translate:
-            local_design = {
-                "id": design["id"], "name": design["name"], "preview": False,
-                "brightness": 255,
-                "staticColors": [
-                    {"lights": list(range(ranges[zid][0], ranges[zid][1] + 1)),
-                     "color": scale_color(pattern["colors"][0], pattern.get("brightness", 255))}
-                    for zid, pattern in patterns.items()
-                ],
-            }
-        await self._async_command(
-            device_id,
-            (lambda: client.async_play({"onState": True, "architectural": local_design}))
-            if client and local_design is not None else None,
-            lambda: self.api.async_play_design(device_id, design),
-            {"onState": True, "architectural": design},
-            {"onState": True, "architectural": local_design} if local_design else None,
-        )
+        ):
+            return None
+        return {
+            "id": design.get("id") or str(uuid.uuid4()),
+            "name": design.get("name") or "Home Assistant Zones", "preview": False,
+            "brightness": 255,
+            "staticColors": [
+                {"lights": list(range(ranges[zid][0], ranges[zid][1] + 1)),
+                 "color": scale_color(pattern["colors"][0], round(pattern.get("brightness", 255) * design.get("brightness", 255) / 255))}
+                for zid, pattern in patterns.items()
+            ],
+        }
 
     @serialized
     async def async_play_zone_pattern(self, device_id: str, zone_id: str, pattern: dict[str, Any]) -> None:
