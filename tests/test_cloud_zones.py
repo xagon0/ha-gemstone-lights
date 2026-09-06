@@ -97,3 +97,28 @@ async def test_cloud_zone_dim_then_brighten_does_not_scale_twice(coordinator, ve
     assert final[0]["pattern"]["colors"] == [200, 51200]
     assert final[1]["pattern"]["colors"] == [5242880]
     assert GemstoneZoneLight(coordinator, "hub", "back").brightness == 80
+
+
+async def test_local_failure_and_cloud_power_change_keep_zone_levels(
+    coordinator, vendor
+):
+    # Given a known local controller whose write endpoint has stopped responding.
+    vendor.devices[0]["hub"] = {"localIp": "192.0.2.10", "tcpEnabled": True}
+    coordinator.data = await coordinator._async_update_data()
+    vendor.failures["/device-control/play"] = 503
+    # When a solid zone falls back to cloud and is then powered off and polled.
+    await coordinator.async_set_zone(
+        "hub", "front", {"color": 4278190080, "brightness": 80, "animation": "Solid"}
+    )
+    await coordinator.async_set_power("hub", False)
+    await asyncio.sleep(5.05)
+    coordinator.data = await coordinator._async_update_data()
+    # Then the physical white channel stays dimmed and powering off retains its logical level.
+    assert vendor.writes[-2][0] == "cloud"
+    patterns = vendor.states["hub"]["architectural"]["zonePatterns"]
+    front_pattern = next(e["pattern"] for e in patterns if e["zoneId"] == "front")
+    assert front_pattern["colors"] == [1342177280]
+    front = GemstoneZoneLight(coordinator, "hub", "front")
+    assert not front.is_on
+    assert front.rgbw_color == (0, 0, 0, 255)
+    assert front.brightness == 80
