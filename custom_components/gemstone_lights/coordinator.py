@@ -749,6 +749,16 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         design = self.device_state(device_id).get("architectural") or {}
 
+        if not design:
+            return {
+                zone_id: {
+                    "color": (entry["pattern"].get("colors") or [0])[0],
+                    "brightness": entry["pattern"].get("brightness", 255),
+                    "animation": entry["pattern"].get("animation", EFFECT_SOLID),
+                }
+                for zone_id, entry in self._zone_entries(device_id).items()
+            }
+
         if zone_patterns := design.get("zonePatterns"):
             result: dict[str, dict[str, Any]] = {}
             for entry in zone_patterns:
@@ -789,6 +799,22 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _zone_entries(self, device_id: str) -> dict[str, dict[str, Any]]:
         """Keep complete vendor patterns and entry metadata for neighboring zones."""
         design = self.device_state(device_id).get("architectural") or {}
+        if not design:
+            state = self.device_state(device_id)
+            pattern = state.get("pattern")
+            if not pattern:
+                color_b = state.get("colorB") or {}
+                color = color_b.get("value", state.get("color"))
+                if color is None:
+                    return {}
+                pattern = self.build_pattern(
+                    device_id, [color], EFFECT_SOLID,
+                    brightness=color_b.get("brightness", 255),
+                )
+            return {
+                zone["id"]: {"zoneId": zone["id"], "pattern": deepcopy(pattern)}
+                for zone in self.zones(device_id) if zone.get("id")
+            }
         if "zonePatterns" in design:
             return {
                 entry["zoneId"]: deepcopy(entry)
@@ -853,6 +879,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if zone_id not in {z.get("id") for z in self.zones(device_id)}:
             raise HomeAssistantError("This zone no longer exists")
         desired = self._zone_entries(device_id)
+        if not self.device_state(device_id).get("onState") and spec is not None:
+            desired = {zone_id: desired[zone_id]} if zone_id in desired else {}
         if spec is None:
             desired.pop(zone_id, None)
         else:

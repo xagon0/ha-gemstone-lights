@@ -33,3 +33,18 @@ async def test_dimming_a_zone_keeps_its_palette_and_animation_settings(coordinat
     # Then brightness is the only field of the existing pattern that changes.
     sent = vendor.writes[-1][3]["architectural"]["zonePatterns"][0]["pattern"]
     assert sent == {**pattern, "brightness": 80}
+
+
+async def test_turning_off_front_of_whole_run_preserves_back(coordinator, vendor):
+    # Given the whole controller is playing a multi-color pattern.
+    pattern = {"colors": [255, 65280], "animation": "chase", "speed": 17, "brightness": 200}
+    coordinator.data["devices"]["hub"]["state"] = {"onState": True, "pattern": pattern}
+    front = GemstoneZoneLight(coordinator, "hub", "front")
+    back = GemstoneZoneLight(coordinator, "hub", "back")
+    # When only the front zone is switched off.
+    await front.async_turn_off()
+    # Then the controller stays on, the back keeps the full pattern, and the front is off.
+    sent = vendor.writes[-1][3]["architectural"]["zonePatterns"]
+    assert sent == [{"zoneId": "back", "pattern": pattern}]
+    assert back.is_on
+    assert not front.is_on
