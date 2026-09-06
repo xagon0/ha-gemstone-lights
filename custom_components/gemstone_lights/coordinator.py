@@ -46,6 +46,7 @@ from .const import (
     EFFECT_SOLID,
 )
 from .local_api import GemstoneLocalApi, GemstoneLocalError
+from .state import same_content, scale_color
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,6 +103,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._write_owners: dict[str, asyncio.Task] = {}
         self._last_write: dict[str, float] = {}
         self._pending_states: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._state_aliases: dict[str, dict[str, Any]] = {}
         self._state_versions: dict[str, int] = {}
         self._refresh_cancel = None
         self._local: dict[str, GemstoneLocalApi] = {}
@@ -120,7 +122,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self._known_devices = devices
         self._device_ids = [d["id"] for d in devices]
-        for key in ("zones", "designs", "library", "library_folders", "speeds", "selected_folder"):
+        for key in ("zones", "designs", "library", "library_folders", "speeds", "selected_folder", "state_aliases"):
             if isinstance(cached.get(key), dict):
                 setattr(self, f"_{key}", cached[key])
         if isinstance(cached.get("patterns"), list):
@@ -144,6 +146,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "patterns": self._patterns, "library": self._library,
             "library_folders": self._library_folders, "speeds": self._speeds,
             "selected_folder": self._selected_folder,
+            "state_aliases": self._state_aliases,
         })
         if cached != self._saved_cache:
             await self._store.async_save(cached)
@@ -173,10 +176,11 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._refresh_cancel = None
         await super().async_shutdown()
 
-    def _publish_command(self, device_id: str, state: dict[str, Any]) -> None:
+    def _publish_command(self, device_id: str, state: dict[str, Any], wire_state: dict[str, Any] | None = None) -> None:
         """Publish a successful command immediately and protect it from stale echoes."""
         self._state_versions[device_id] = self._state_versions.get(device_id, 0) + 1
         self._pending_states[device_id] = (monotonic() + 5, deepcopy(state))
+        self._state_aliases[device_id] = {"logical": deepcopy(state), "wire": deepcopy(wire_state or state)}
         data = dict(self.data or {})
         records = dict(data.get(DATA_DEVICES, {}))
         records[device_id] = {**records.get(device_id, {}), DATA_STATE: deepcopy(state), "available": True}
@@ -434,6 +438,11 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             state = deepcopy(pending[1])
                         else:
                             self._pending_states.pop(device_id, None)
+                            alias = self._state_aliases.get(device_id)
+                            if alias and same_content(state, alias["wire"]):
+                                state = {**deepcopy(alias["logical"]), "onState": state["onState"]}
+                            else:
+                                self._state_aliases.pop(device_id, None)
                 except GemstoneAuthError:
                     raise
                 except GemstoneError as err:
@@ -498,7 +507,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- commands (local first, cloud fallback) ----------------------------
 
-    async def _async_command(self, device_id: str, local_coro, cloud_coro, state: dict[str, Any]) -> None:
+    async def _async_command(self, device_id: str, local_coro, cloud_coro, state: dict[str, Any], local_state: dict[str, Any] | None = None) -> None:
         """Run a command locally when possible, else via the cloud.
 
         Writes are serialised and spaced: the controller silently ignores
@@ -511,7 +520,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 await local_coro()
                 self._last_write[device_id] = monotonic()
-                self._publish_command(device_id, state)
+                self._publish_command(device_id, state, local_state)
+                await self._async_save_cache()
                 return
             except GemstoneLocalError as err:
                 _LOGGER.warning(
@@ -527,6 +537,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await cloud_coro()
         self._last_write[device_id] = monotonic()
         self._publish_command(device_id, state)
+        await self._async_save_cache()
 
     @serialized
     async def async_set_power(self, device_id: str, on: bool) -> None:
@@ -860,10 +871,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if can_translate:
             local_design = {
                 "id": design["id"], "name": design["name"], "preview": False,
-                "brightness": max(p.get("brightness", 255) for p in patterns.values()),
+                "brightness": 255,
                 "staticColors": [
                     {"lights": list(range(ranges[zid][0], ranges[zid][1] + 1)),
-                     "color": pattern["colors"][0]}
+                     "color": scale_color(pattern["colors"][0], pattern.get("brightness", 255))}
                     for zid, pattern in patterns.items()
                 ],
             }
@@ -873,6 +884,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if client and local_design is not None else None,
             lambda: self.api.async_play_design(device_id, design),
             {"onState": True, "architectural": design},
+            {"onState": True, "architectural": local_design} if local_design else None,
         )
 
     @serialized

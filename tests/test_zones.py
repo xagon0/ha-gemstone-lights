@@ -70,3 +70,21 @@ async def test_endpoints_alone_do_not_imply_uniform_zone_coverage(coordinator):
     front = GemstoneZoneLight(coordinator, "hub", "front")
     # Then it must not report the whole zone as a uniform red.
     assert front.rgbw_color is None
+
+
+async def test_local_zones_keep_independent_brightness_after_echo(coordinator, vendor):
+    # Given a local layout with red front at 80 and white back at 200.
+    vendor.devices[0]["hub"] = {"localIp": "192.0.2.10", "tcpEnabled": True}
+    coordinator.data = await coordinator._async_update_data()
+    coordinator.data["devices"]["hub"]["state"] = {"onState": True, "architectural": {"zonePatterns": [{"zoneId": "front", "pattern": {"colors": [255], "brightness": 80, "animation": "motionless"}}]}}
+    # When the back is added and a later poll echoes the physical pixel colors.
+    await coordinator.async_set_zone("hub", "back", {"color": 4278190080, "brightness": 200, "animation": "Solid"})
+    coordinator._pending_states.clear()
+    coordinator.data = await coordinator._async_update_data()
+    # Then physical channels encode independent brightness and logical zone colors remain full scale.
+    sent = vendor.writes[-1][3]["architectural"]
+    assert sent["brightness"] == 255
+    assert sent["staticColors"] == [{"lights": [10, 11, 12], "color": 80}, {"lights": [13, 14, 15], "color": 3355443200}]
+    assert GemstoneZoneLight(coordinator, "hub", "front").brightness == 80
+    assert GemstoneZoneLight(coordinator, "hub", "back").rgbw_color == (0, 0, 0, 255)
+    assert GemstoneZoneLight(coordinator, "hub", "back").brightness == 200
