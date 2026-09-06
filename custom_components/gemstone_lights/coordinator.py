@@ -901,6 +901,15 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     @serialized
+    async def async_play_zone_pattern(self, device_id: str, zone_id: str, pattern: dict[str, Any]) -> None:
+        """Play a saved palette in one zone without changing its neighbors."""
+        if zone_id not in {z.get("id") for z in self.zones(device_id)}:
+            raise HomeAssistantError("This zone no longer exists")
+        desired = self._zone_entries(device_id) if self.device_state(device_id).get("onState") else {}
+        desired[zone_id] = {"zoneId": zone_id, "pattern": deepcopy(pattern)}
+        await self._async_play_zones(device_id, desired)
+
+    @serialized
     async def async_set_zone(
         self, device_id: str, zone_id: str, spec: dict[str, Any] | None
     ) -> None:

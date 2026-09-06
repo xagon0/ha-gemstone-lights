@@ -16,8 +16,6 @@ from __future__ import annotations
 import difflib
 from typing import Any
 
-import voluptuous as vol
-
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_EFFECT,
@@ -28,7 +26,6 @@ from homeassistant.components.light import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import GemstoneConfigEntry
@@ -88,17 +85,6 @@ async def async_setup_entry(
     _add_new_entities()
     entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
-    # Lets automations reach any of the ~1700 library patterns by name,
-    # which no dropdown could sensibly offer.
-    entity_platform.async_get_current_platform().async_register_entity_service(
-        "play_library_pattern",
-        {
-            vol.Required("pattern"): cv.string,
-            vol.Optional("folder"): cv.string,
-        },
-        "async_play_library_pattern",
-    )
-
 
 class _GemstoneBaseLight(GemstoneEntity, LightEntity):
     """Shared colour and effect behaviour."""
@@ -122,6 +108,16 @@ class _GemstoneBaseLight(GemstoneEntity, LightEntity):
         brightness = kwargs.get(ATTR_BRIGHTNESS) or self.brightness or 255
         effect = kwargs.get(ATTR_EFFECT) or self.effect or EFFECT_SOLID
         return tuple(rgbw), int(brightness), effect
+
+    def _library_data(self, pattern: str, folder: str | None) -> dict[str, Any]:
+        """Resolve a library name consistently for controller and zone actions."""
+        data = self.coordinator.find_library_pattern(pattern, folder)
+        if data is None:
+            raise HomeAssistantError(
+                f"No library pattern called '{pattern}'."
+                + _suggest(pattern, self.coordinator.library_pattern_names())
+            )
+        return data
 
 
 class GemstoneLight(_GemstoneBaseLight):
@@ -227,12 +223,7 @@ class GemstoneLight(_GemstoneBaseLight):
         self, pattern: str, folder: str | None = None
     ) -> None:
         """Play a pattern from Gemstone's official library by name."""
-        data = self.coordinator.find_library_pattern(pattern, folder)
-        if data is None:
-            raise HomeAssistantError(
-                f"No library pattern called '{pattern}'."
-                + _suggest(pattern, self.coordinator.library_pattern_names())
-            )
+        data = self._library_data(pattern, folder)
         await self.coordinator.async_play_pattern(self._device_id, data)
 
 
@@ -321,3 +312,9 @@ class GemstoneZoneLight(_GemstoneBaseLight):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Clear this zone, leaving the others as they are."""
         await self.coordinator.async_set_zone(self._device_id, self._zone_id, None)
+
+    async def async_play_library_pattern(self, pattern: str, folder: str | None = None) -> None:
+        """Play a complete library pattern in this zone only."""
+        await self.coordinator.async_play_zone_pattern(
+            self._device_id, self._zone_id, self._library_data(pattern, folder)
+        )
