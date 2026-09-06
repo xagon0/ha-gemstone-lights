@@ -12,7 +12,7 @@ def scale_color(color: int, brightness: int) -> int:
 
 
 def encode_cloud_design(design: dict[str, Any]) -> dict[str, Any]:
-    """Encode zone dimmers that cloud play otherwise replaces with 255.
+    """Encode zone dimmers that cloud play otherwise replaces with the master level.
 
     The design's master brightness remains supported. Scale only each zone's
     palette and background, leaving its animation and all other metadata intact.

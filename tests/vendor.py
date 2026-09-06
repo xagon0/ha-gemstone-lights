@@ -62,11 +62,13 @@ class Vendor:
                     self.states[device] = {"onState": True, **deepcopy(body)}
                     design = self.states[device].get("architectural") or {}
                     if design.get("zonePatterns"):
-                        # Observed on Hub2 1.1.5: cloud play normalizes nested
-                        # brightness and adds an empty static pixel collection.
+                        # Observed on Hub2 1.1.5: cloud play copies the master
+                        # brightness into every nested pattern's reported level.
                         design.setdefault("staticColors", [])
                         for entry in design["zonePatterns"]:
-                            entry["pattern"]["brightness"] = 255
+                            entry["pattern"]["brightness"] = design.get(
+                                "brightness", 255
+                            )
             return CallbackResult(payload={"data": None})
         data = {
             "/homegroup/list": [{"id": "home"}],

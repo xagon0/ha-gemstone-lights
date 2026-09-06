@@ -88,10 +88,16 @@ async def test_cloud_zone_dim_then_brighten_does_not_scale_twice(coordinator, ve
     # When the whole design is dimmed and restored, then the front zone is brightened independently.
     await whole.async_turn_on(brightness=128)
     dimmed = deepcopy(vendor.states["hub"]["architectural"])
+    await asyncio.sleep(5.05)
+    coordinator.data = await coordinator._async_update_data()
+    dimmed_front = GemstoneZoneLight(coordinator, "hub", "front").brightness
+    dimmed_back = GemstoneZoneLight(coordinator, "hub", "back").brightness
     await whole.async_turn_on(brightness=255)
     await GemstoneZoneLight(coordinator, "hub", "front").async_turn_on(brightness=200)
     # Then global brightness changes once, and the independent edit leaves the back at its original level.
     assert dimmed["brightness"] == 128
+    assert dimmed_front == 32
+    assert dimmed_back == 40
     assert dimmed["zonePatterns"][0]["pattern"]["colors"] == [64, 16384]
     final = vendor.states["hub"]["architectural"]["zonePatterns"]
     assert final[0]["pattern"]["colors"] == [200, 51200]

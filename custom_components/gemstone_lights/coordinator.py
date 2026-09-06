@@ -771,6 +771,11 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         client = self._local.get(device_id)
         payload = {**design, "preview": False}
         cloud_payload = encode_cloud_design(payload)
+        cloud_reported = deepcopy(cloud_payload)
+        for zone in cloud_reported.get("zonePatterns") or []:
+            # Hub2 reports the master's level in each zone after cloud play.
+            # This is a redundant report, not another physical dimming factor.
+            zone["pattern"]["brightness"] = cloud_reported.get("brightness", 255)
         local_payload = (
             self._local_zone_design(device_id, payload)
             if payload.get("zonePatterns")
@@ -790,7 +795,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             {"onState": True, "architectural": local_payload}
             if local_payload
             else None,
-            {"onState": True, "architectural": cloud_payload},
+            {"onState": True, "architectural": cloud_reported},
         )
 
     @serialized
