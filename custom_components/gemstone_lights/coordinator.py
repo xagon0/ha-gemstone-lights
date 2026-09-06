@@ -1,9 +1,8 @@
 """Data coordinator for Gemstone Lights.
 
-State and commands prefer the controller's local HTTP API and fall back to
-Gemstone's cloud. The cloud is still required for things the controller does
-not serve: account discovery, saved designs, zone definitions and the pattern
-catalog.
+State and commands use the controller's local HTTP API. Optional account mode
+adds cloud discovery, catalog import and fallback; local-only mode makes no
+cloud requests. User-owned content is persisted independently in Home Assistant.
 """
 
 from __future__ import annotations
@@ -808,6 +807,27 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if payload.get("zonePatterns")
             else payload
         )
+        if local_payload is None:
+            vendor_ranges = {
+                zone["id"]: tuple(zone["lights"][-2:])
+                for zone in self._zones.get(device_id, [])
+                if zone.get("id") and len(zone.get("lights", [])) >= 3
+            }
+            ranges = self.zone_ranges(device_id)
+            if any(
+                vendor_ranges.get(zone["zoneId"]) != ranges.get(zone["zoneId"])
+                or zone["zoneId"] not in vendor_ranges
+                for zone in payload.get("zonePatterns", [])
+            ):
+                raise HomeAssistantError(
+                    "New or resized HA zones support motionless palettes only; "
+                    "native animated zones must already be configured on the controller"
+                )
+            if self.api is None:
+                raise HomeAssistantError(
+                    "Local animated zones are verified on Hub2 firmware 1.1.5 only; "
+                    "cloud access is disabled"
+                )
         await self._async_command(
             device_id,
             (
@@ -1098,7 +1118,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_play_zones(
         self, device_id: str, entries: dict[str, dict[str, Any]]
     ) -> None:
-        """Send the full zone layout, translating only supported solid layouts."""
+        """Send the complete layout while preserving neighboring zone content."""
         if not entries:
             await self.async_set_power(device_id, False)
             return
@@ -1114,37 +1134,63 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _local_zone_design(
         self, device_id: str, design: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """Translate verified single-color solid zones, preserving their effective brightness."""
+        """Render static palettes locally or use verified firmware-native animations."""
         ranges = self.zone_ranges(device_id)
         patterns = {
             entry["zoneId"]: entry["pattern"] for entry in design["zonePatterns"]
         }
-        if not patterns or not all(
-            zid in ranges
-            and len(pattern.get("colors") or []) == 1
-            and pattern.get("animation") in (EFFECT_SOLID, "motionless")
-            for zid, pattern in patterns.items()
-        ):
+        if not patterns or not all(zid in ranges for zid in patterns):
             return None
+        if any(
+            pattern.get("animation") not in (EFFECT_SOLID, "motionless")
+            for pattern in patterns.values()
+        ):
+            # Hub2 1.1.5 was verified physically to render native zonePatterns
+            # over LAN. Zone IDs must already belong to the controller; HA-only
+            # ranges cannot create firmware zone definitions through this API.
+            firmware = str(self.settings(device_id).get("firmware") or "")
+            vendor_ranges = {
+                zone["id"]: tuple(zone["lights"][-2:])
+                for zone in self._zones.get(device_id, [])
+                if zone.get("id") and len(zone.get("lights", [])) >= 3
+            }
+            if firmware == "1.1.5" and all(
+                vendor_ranges.get(zid) == ranges[zid] for zid in patterns
+            ):
+                return deepcopy(design)
+            return None
+        # Expand a motionless palette into explicit pixels. This works for
+        # newly created HA-only zones as well as controller-defined zones.
+        static = [
+            {
+                **deepcopy(item),
+                "color": scale_color(item["color"], design.get("brightness", 255)),
+            }
+            for item in design.get("staticColors") or []
+        ]
+        for zid, pattern in patterns.items():
+            colors = pattern.get("colors") or [0]
+            start, end = ranges[zid]
+            groups: dict[int, list[int]] = {}
+            for pixel in range(start, end + 1):
+                color = scale_color(
+                    colors[(pixel - start) % len(colors)],
+                    round(
+                        pattern.get("brightness", 255)
+                        * design.get("brightness", 255)
+                        / 255
+                    ),
+                )
+                groups.setdefault(color, []).append(pixel)
+            static.extend(
+                {"lights": lights, "color": color} for color, lights in groups.items()
+            )
         return {
             "id": design.get("id") or str(uuid.uuid4()),
             "name": design.get("name") or "Home Assistant Zones",
             "preview": False,
             "brightness": 255,
-            "staticColors": [
-                {
-                    "lights": list(range(ranges[zid][0], ranges[zid][1] + 1)),
-                    "color": scale_color(
-                        pattern["colors"][0],
-                        round(
-                            pattern.get("brightness", 255)
-                            * design.get("brightness", 255)
-                            / 255
-                        ),
-                    ),
-                }
-                for zid, pattern in patterns.items()
-            ],
+            "staticColors": static,
         }
 
     @serialized
