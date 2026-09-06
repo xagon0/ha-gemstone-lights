@@ -1,10 +1,18 @@
 """An account-wide legacy override must never redirect another controller."""
 
 
-async def test_ambiguous_legacy_override_cannot_redirect_other_controller(coordinator, vendor):
+async def test_ambiguous_legacy_override_cannot_redirect_other_controller(
+    coordinator, vendor
+):
     # Given two controllers and an old account-wide host override with no device selection.
     vendor.devices[0]["hub"] = {"localIp": "192.0.2.10", "tcpEnabled": True}
-    vendor.devices.append({"id": "other", "name": "Garage", "hub": {"localIp": "192.0.2.11", "tcpEnabled": True}})
+    vendor.devices.append(
+        {
+            "id": "other",
+            "name": "Garage",
+            "hub": {"localIp": "192.0.2.11", "tcpEnabled": True},
+        }
+    )
     vendor.states["other"] = {"onState": True, "color": 65280}
     coordinator._host_override = "192.0.2.10"
     coordinator.data = await coordinator._async_update_data()
@@ -16,12 +24,18 @@ async def test_ambiguous_legacy_override_cannot_redirect_other_controller(coordi
     assert not vendor.states["other"]["onState"]
 
 
-async def test_options_reject_url_and_bind_valid_host_to_controller(hass, entry, coordinator, enable_custom_integrations):
+async def test_options_reject_url_and_bind_valid_host_to_controller(
+    hass, entry, coordinator, enable_custom_integrations
+):
     # Given an account with one known controller and its real Home Assistant options flow.
     flow = await hass.config_entries.options.async_init(entry.entry_id)
     # When a URL is submitted in place of a host, then a plain hostname is submitted.
-    rejected = await hass.config_entries.options.async_configure(flow["flow_id"], {"host": "http://192.0.2.10/path"})
-    accepted = await hass.config_entries.options.async_configure(flow["flow_id"], {"host": "controller.local"})
+    rejected = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"host": "http://192.0.2.10/path"}
+    )
+    accepted = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"host": "controller.local"}
+    )
     # Then invalid input gets a field error and the accepted override is explicitly bound to the hub.
     assert rejected["errors"] == {"host": "invalid_host"}
     assert accepted["data"]["host"] == "controller.local"

@@ -28,10 +28,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the design and pattern selects."""
-    async_add_discovered_entities(entry, async_add_entities, lambda coordinator, device_id: [
-        GemstoneDesignSelect(coordinator, device_id), GemstonePatternSelect(coordinator, device_id),
-        GemstoneLibraryFolderSelect(coordinator, device_id), GemstoneLibraryPatternSelect(coordinator, device_id),
-    ])
+    async_add_discovered_entities(
+        entry,
+        async_add_entities,
+        lambda coordinator, device_id: [
+            GemstoneDesignSelect(coordinator, device_id),
+            GemstonePatternSelect(coordinator, device_id),
+            GemstoneLibraryFolderSelect(coordinator, device_id),
+            GemstoneLibraryPatternSelect(coordinator, device_id),
+        ],
+    )
 
 
 class GemstoneDesignSelect(GemstoneEntity, SelectEntity):

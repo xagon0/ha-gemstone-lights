@@ -20,7 +20,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up a "now playing" sensor per controller."""
-    async_add_discovered_entities(entry, async_add_entities, lambda coordinator, device_id: [GemstoneNowPlaying(coordinator, device_id)])
+    async_add_discovered_entities(
+        entry,
+        async_add_entities,
+        lambda coordinator, device_id: [GemstoneNowPlaying(coordinator, device_id)],
+    )
 
 
 class GemstoneNowPlaying(GemstoneEntity, SensorEntity):
@@ -67,8 +71,11 @@ class GemstoneNowPlaying(GemstoneEntity, SensorEntity):
             "design": (state.get("architectural") or {}).get("name"),
             "pattern": (state.get("pattern") or {}).get("name"),
             "color": color,
-            "control": "local" if self.coordinator.is_local(self._device_id) else "cloud",
-            "local_ip": self.coordinator.local_host(self._device_id) or hub.get("localIp"),
+            "control": "local"
+            if self.coordinator.is_local(self._device_id)
+            else "cloud",
+            "local_ip": self.coordinator.local_host(self._device_id)
+            or hub.get("localIp"),
             "firmware": settings.get("firmware") or info.get("firmware"),
             "outputs": settings.get("pixelOutputNames") or hub.get("outputNames"),
             "pixel_count": settings.get("pixelCount") or hub.get("pixelCount"),

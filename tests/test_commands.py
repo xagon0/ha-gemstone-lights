@@ -3,7 +3,9 @@
 from custom_components.gemstone_lights.light import GemstoneLight
 
 
-async def test_successful_color_is_immediate_and_survives_stale_poll(coordinator, vendor):
+async def test_successful_color_is_immediate_and_survives_stale_poll(
+    coordinator, vendor
+):
     # Given the cloud accepts writes but reports its previous state for a while.
     vendor.echo_writes = False
     light = GemstoneLight(coordinator, "hub")

@@ -21,18 +21,15 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from homeassistant.helpers.storage import Store
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.storage import Store
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .commands import serialized
 from .const import (
     CATALOG_REFRESH_INTERVAL,
-    LIBRARY_REFRESH_INTERVAL,
-    LOCAL_RETRY_BACKOFF,
-    LOCAL_WRITE_GAP,
     DATA_DESIGNS,
     DATA_DEVICES,
     DATA_INFO,
@@ -44,6 +41,9 @@ from .const import (
     DEFAULT_SPEED,
     DOMAIN,
     EFFECT_SOLID,
+    LIBRARY_REFRESH_INTERVAL,
+    LOCAL_RETRY_BACKOFF,
+    LOCAL_WRITE_GAP,
 )
 from .local_api import GemstoneLocalApi, GemstoneLocalError
 from .state import same_content, scale_color
@@ -123,11 +123,21 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(cached, dict):
             return
         devices = cached.get("devices", [])
-        if not isinstance(devices, list) or any(not isinstance(d, dict) or not d.get("id") for d in devices):
+        if not isinstance(devices, list) or any(
+            not isinstance(d, dict) or not d.get("id") for d in devices
+        ):
             return
         self._known_devices = devices
         self._device_ids = [d["id"] for d in devices]
-        for key in ("zones", "designs", "library", "library_folders", "speeds", "selected_folder", "state_aliases"):
+        for key in (
+            "zones",
+            "designs",
+            "library",
+            "library_folders",
+            "speeds",
+            "selected_folder",
+            "state_aliases",
+        ):
             if isinstance(cached.get(key), dict):
                 setattr(self, f"_{key}", cached[key])
         if isinstance(cached.get("patterns"), list):
@@ -142,17 +152,37 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Persist discovery and catalogs, never passwords or session tokens."""
         devices = []
         for device in self._known_devices:
-            info = {k: device[k] for k in ("id", "name", "online", "firmware") if k in device}
+            info = {
+                k: device[k]
+                for k in ("id", "name", "online", "firmware")
+                if k in device
+            }
             hub = device.get("hub") or {}
-            info["hub"] = {k: hub[k] for k in ("localIp", "tcpEnabled", "pixelCount", "outputNames", "rgbwSequence") if k in hub}
+            info["hub"] = {
+                k: hub[k]
+                for k in (
+                    "localIp",
+                    "tcpEnabled",
+                    "pixelCount",
+                    "outputNames",
+                    "rgbwSequence",
+                )
+                if k in hub
+            }
             devices.append(info)
-        cached = deepcopy({
-            "devices": devices, "zones": self._zones, "designs": self._designs,
-            "patterns": self._patterns, "library": self._library,
-            "library_folders": self._library_folders, "speeds": self._speeds,
-            "selected_folder": self._selected_folder,
-            "state_aliases": self._state_aliases,
-        })
+        cached = deepcopy(
+            {
+                "devices": devices,
+                "zones": self._zones,
+                "designs": self._designs,
+                "patterns": self._patterns,
+                "library": self._library,
+                "library_folders": self._library_folders,
+                "speeds": self._speeds,
+                "selected_folder": self._selected_folder,
+                "state_aliases": self._state_aliases,
+            }
+        )
         if cached != self._saved_cache:
             await self._store.async_save(cached)
             self._saved_cache = cached
@@ -181,14 +211,26 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._refresh_cancel = None
         await super().async_shutdown()
 
-    def _publish_command(self, device_id: str, state: dict[str, Any], wire_state: dict[str, Any] | None = None) -> None:
+    def _publish_command(
+        self,
+        device_id: str,
+        state: dict[str, Any],
+        wire_state: dict[str, Any] | None = None,
+    ) -> None:
         """Publish a successful command immediately and protect it from stale echoes."""
         self._state_versions[device_id] = self._state_versions.get(device_id, 0) + 1
         self._pending_states[device_id] = (monotonic() + 5, deepcopy(state))
-        self._state_aliases[device_id] = {"logical": deepcopy(state), "wire": deepcopy(wire_state or state)}
+        self._state_aliases[device_id] = {
+            "logical": deepcopy(state),
+            "wire": deepcopy(wire_state or state),
+        }
         data = dict(self.data or {})
         records = dict(data.get(DATA_DEVICES, {}))
-        records[device_id] = {**records.get(device_id, {}), DATA_STATE: deepcopy(state), "available": True}
+        records[device_id] = {
+            **records.get(device_id, {}),
+            DATA_STATE: deepcopy(state),
+            "available": True,
+        }
         data[DATA_DEVICES] = records
         self.async_set_updated_data(data)
         if self._refresh_cancel:
@@ -211,14 +253,20 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def device_info_raw(self, device_id: str) -> dict[str, Any]:
         """Return the raw controller record from the cloud."""
-        return (self.data or {}).get(DATA_DEVICES, {}).get(device_id, {}).get(
-            DATA_INFO, {}
+        return (
+            (self.data or {})
+            .get(DATA_DEVICES, {})
+            .get(device_id, {})
+            .get(DATA_INFO, {})
         )
 
     def device_state(self, device_id: str) -> dict[str, Any]:
         """Return the controller's currently-playing state."""
-        return (self.data or {}).get(DATA_DEVICES, {}).get(device_id, {}).get(
-            DATA_STATE, {}
+        return (
+            (self.data or {})
+            .get(DATA_DEVICES, {})
+            .get(device_id, {})
+            .get(DATA_STATE, {})
         )
 
     def designs(self, device_id: str) -> list[dict[str, Any]]:
@@ -257,10 +305,14 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
 
         hub = info.get("hub") or {}
-        override = self._host_override if (
-            self._host_device_id == device_id
-            or (not self._host_device_id and self._device_ids == [device_id])
-        ) else None
+        override = (
+            self._host_override
+            if (
+                self._host_device_id == device_id
+                or (not self._host_device_id and self._device_ids == [device_id])
+            )
+            else None
+        )
         host = override or hub.get("localIp")
         if not host:
             return None
@@ -312,9 +364,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 err,
             )
             return
-        _LOGGER.info(
-            "Gemstone %s: enabled local control on the controller", device_id
-        )
+        _LOGGER.info("Gemstone %s: enabled local control on the controller", device_id)
 
     # -- polling ------------------------------------------------------------
 
@@ -363,7 +413,13 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     data = item.get("patternData")
                     if not isinstance(data, dict) or not data.get("name"):
                         continue
-                    patterns.append({"folder": folder.get("name") or "", "name": data["name"], "data": data})
+                    patterns.append(
+                        {
+                            "folder": folder.get("name") or "",
+                            "name": data["name"],
+                            "data": data,
+                        }
+                    )
         except GemstoneError as err:
             complete = False
             self._handle_cloud_error(err)
@@ -403,7 +459,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         err,
                     )
                 self._local_ok[device_id] = False
-                self._local_retry_after[device_id] = dt_util.utcnow() + LOCAL_RETRY_BACKOFF
+                self._local_retry_after[device_id] = (
+                    dt_util.utcnow() + LOCAL_RETRY_BACKOFF
+                )
 
         if self._reauth_started:
             raise GemstoneAuthError("Gemstone account needs reauthentication")
@@ -418,7 +476,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch controller state (and the catalog when due)."""
         try:
             now = dt_util.utcnow()
-            if not self._reauth_started and (self._discovery_next is None or now >= self._discovery_next):
+            if not self._reauth_started and (
+                self._discovery_next is None or now >= self._discovery_next
+            ):
                 self._discovery_next = now + timedelta(minutes=1)
                 try:
                     discovered = await self._async_discover()
@@ -427,9 +487,13 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if not self._known_devices:
                         raise
                     self._handle_cloud_error(err)
-                    _LOGGER.debug("Cloud discovery unavailable; using cached controllers")
+                    _LOGGER.debug(
+                        "Cloud discovery unavailable; using cached controllers"
+                    )
                 else:
-                    new_devices = list({d["id"]: d for d in discovered if d.get("id")}.values())
+                    new_devices = list(
+                        {d["id"]: d for d in discovered if d.get("id")}.values()
+                    )
                     if {d["id"] for d in new_devices} != set(self._device_ids):
                         self._catalog_refreshed = None
                     self._known_devices = new_devices
@@ -442,15 +506,28 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._catalog_refreshed is None
                 or dt_util.utcnow() - self._catalog_refreshed > CATALOG_REFRESH_INTERVAL
             )
-            if due and self._cloud_available and (self._catalog_retry_after is None or now >= self._catalog_retry_after):
+            if (
+                due
+                and self._cloud_available
+                and (
+                    self._catalog_retry_after is None
+                    or now >= self._catalog_retry_after
+                )
+            ):
                 await self._async_refresh_catalog(self._device_ids)
 
             library_due = self._enable_library and (
                 self._library_refreshed is None
-                or dt_util.utcnow() - self._library_refreshed
-                > LIBRARY_REFRESH_INTERVAL
+                or dt_util.utcnow() - self._library_refreshed > LIBRARY_REFRESH_INTERVAL
             )
-            if library_due and self._cloud_available and (self._library_retry_after is None or now >= self._library_retry_after):
+            if (
+                library_due
+                and self._cloud_available
+                and (
+                    self._library_retry_after is None
+                    or now >= self._library_retry_after
+                )
+            ):
                 await self._async_refresh_library()
 
             result: dict[str, Any] = {DATA_DEVICES: {}}
@@ -470,7 +547,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             self._pending_states.pop(device_id, None)
                             alias = self._state_aliases.get(device_id)
                             if alias and same_content(state, alias["wire"]):
-                                state = {**deepcopy(alias["logical"]), "onState": state["onState"]}
+                                state = {
+                                    **deepcopy(alias["logical"]),
+                                    "onState": state["onState"],
+                                }
                             else:
                                 self._state_aliases.pop(device_id, None)
                 except GemstoneError as err:
@@ -515,7 +595,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.set_speed(device_id, value)
         state = self.device_state(device_id)
         if state.get("onState") and (pattern := state.get("pattern")):
-            await self.async_play_pattern(device_id, {**pattern, "speed": self.speed(device_id)})
+            await self.async_play_pattern(
+                device_id, {**pattern, "speed": self.speed(device_id)}
+            )
         else:
             await self._async_save_cache()
             self.async_update_listeners()
@@ -547,7 +629,14 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- commands (local first, cloud fallback) ----------------------------
 
-    async def _async_command(self, device_id: str, local_coro, cloud_coro, state: dict[str, Any], local_state: dict[str, Any] | None = None) -> None:
+    async def _async_command(
+        self,
+        device_id: str,
+        local_coro,
+        cloud_coro,
+        state: dict[str, Any],
+        local_state: dict[str, Any] | None = None,
+    ) -> None:
         """Run a command locally when possible, else via the cloud.
 
         Writes are serialised and spaced: the controller silently ignores
@@ -589,7 +678,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_power(self, device_id: str, on: bool) -> None:
         """Turn a controller on or off."""
         client = self._local.get(device_id)
-        wire = self._state_aliases.get(device_id, {}).get("wire", self.device_state(device_id))
+        wire = self._state_aliases.get(device_id, {}).get(
+            "wire", self.device_state(device_id)
+        )
         await self._async_command(
             device_id,
             (lambda: client.async_set_power(on)) if client else None,
@@ -647,15 +738,25 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Play an architectural design."""
         client = self._local.get(device_id)
         payload = {**design, "preview": False}
-        local_payload = self._local_zone_design(device_id, payload) if payload.get("zonePatterns") else payload
+        local_payload = (
+            self._local_zone_design(device_id, payload)
+            if payload.get("zonePatterns")
+            else payload
+        )
         await self._async_command(
             device_id,
-            (lambda: client.async_play({"onState": True, "architectural": local_payload}))
+            (
+                lambda: client.async_play(
+                    {"onState": True, "architectural": local_payload}
+                )
+            )
             if client and local_payload is not None
             else None,
             lambda: self.api.async_play_design(device_id, design),
             {"onState": True, "architectural": deepcopy(payload)},
-            {"onState": True, "architectural": local_payload} if local_payload else None,
+            {"onState": True, "architectural": local_payload}
+            if local_payload
+            else None,
         )
 
     @serialized
@@ -683,7 +784,6 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return True
 
         return False
-
 
     # -- Gemstone's official pattern library ---------------------------------
 
@@ -788,7 +888,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             try:
                 start, end = int(lights[-2]), int(lights[-1])
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 continue
             if 0 <= start <= end < 65536:
                 ranges[zone["id"]] = (start, end)
@@ -804,7 +904,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         design = self.device_state(device_id).get("architectural") or {}
 
         if not design:
-            if self.device_state(device_id).get("playlist") or self.device_state(device_id).get("impulse"):
+            if self.device_state(device_id).get("playlist") or self.device_state(
+                device_id
+            ).get("impulse"):
                 return {}
             return {
                 zone_id: {
@@ -824,7 +926,11 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if zone_id:
                     result[zone_id] = {
                         "color": colors[0] if colors else 0,
-                        "brightness": round(pattern.get("brightness", 255) * design.get("brightness", 255) / 255),
+                        "brightness": round(
+                            pattern.get("brightness", 255)
+                            * design.get("brightness", 255)
+                            / 255
+                        ),
                         "animation": pattern.get("animation") or EFFECT_SOLID,
                     }
             return result
@@ -854,7 +960,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Keep complete vendor patterns and entry metadata for neighboring zones."""
         state = self.device_state(device_id)
         if state.get("onState") and (state.get("playlist") or state.get("impulse")):
-            raise HomeAssistantError("Stop the playlist or music mode before editing individual zones")
+            raise HomeAssistantError(
+                "Stop the playlist or music mode before editing individual zones"
+            )
         design = state.get("architectural") or {}
         if not design:
             state = self.device_state(device_id)
@@ -865,12 +973,15 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if color is None:
                     return {}
                 pattern = self.build_pattern(
-                    device_id, [color], EFFECT_SOLID,
+                    device_id,
+                    [color],
+                    EFFECT_SOLID,
                     brightness=color_b.get("brightness", 255),
                 )
             return {
                 zone["id"]: {"zoneId": zone["id"], "pattern": deepcopy(pattern)}
-                for zone in self.zones(device_id) if zone.get("id")
+                for zone in self.zones(device_id)
+                if zone.get("id")
             }
         if "zonePatterns" in design:
             entries = {
@@ -881,20 +992,36 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if design.get("brightness", 255) != 255:
                 for entry in entries.values():
                     pattern = entry["pattern"]
-                    pattern["brightness"] = round(pattern.get("brightness", 255) * design["brightness"] / 255)
+                    pattern["brightness"] = round(
+                        pattern.get("brightness", 255) * design["brightness"] / 255
+                    )
             return entries
         if static := design.get("staticColors"):
             mapped = self.zone_states(device_id)
             ranges = self.zone_ranges(device_id)
-            represented = {pixel for zid in mapped if zid in ranges for pixel in range(ranges[zid][0], ranges[zid][1] + 1)}
-            lit = {pixel for item in static if item.get("color") for pixel in item.get("lights", [])}
+            represented = {
+                pixel
+                for zid in mapped
+                if zid in ranges
+                for pixel in range(ranges[zid][0], ranges[zid][1] + 1)
+            }
+            lit = {
+                pixel
+                for item in static
+                if item.get("color")
+                for pixel in item.get("lights", [])
+            }
             if not lit.issubset(represented):
-                raise HomeAssistantError("This pixel design cannot be preserved as zones. Select a zone design before editing individual zones")
+                raise HomeAssistantError(
+                    "This pixel design cannot be preserved as zones. Select a zone design before editing individual zones"
+                )
         return {
             zone_id: {
                 "zoneId": zone_id,
                 "pattern": self.build_pattern(
-                    device_id, [spec["color"]], spec["animation"],
+                    device_id,
+                    [spec["color"]],
+                    spec["animation"],
                     brightness=spec["brightness"],
                 ),
             }
@@ -909,39 +1036,62 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_set_power(device_id, False)
             return
         design = {
-            "id": str(uuid.uuid4()), "name": "Home Assistant Zones",
-            "brightness": 255, "preview": False,
+            "id": str(uuid.uuid4()),
+            "name": "Home Assistant Zones",
+            "brightness": 255,
+            "preview": False,
             "zonePatterns": list(entries.values()),
         }
         await self.async_play_design(device_id, design)
 
-    def _local_zone_design(self, device_id: str, design: dict[str, Any]) -> dict[str, Any] | None:
+    def _local_zone_design(
+        self, device_id: str, design: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Translate verified single-color solid zones, preserving their effective brightness."""
         ranges = self.zone_ranges(device_id)
-        patterns = {entry["zoneId"]: entry["pattern"] for entry in design["zonePatterns"]}
+        patterns = {
+            entry["zoneId"]: entry["pattern"] for entry in design["zonePatterns"]
+        }
         if not patterns or not all(
-            zid in ranges and len(pattern.get("colors") or []) == 1
+            zid in ranges
+            and len(pattern.get("colors") or []) == 1
             and pattern.get("animation") in (EFFECT_SOLID, "motionless")
             for zid, pattern in patterns.items()
         ):
             return None
         return {
             "id": design.get("id") or str(uuid.uuid4()),
-            "name": design.get("name") or "Home Assistant Zones", "preview": False,
+            "name": design.get("name") or "Home Assistant Zones",
+            "preview": False,
             "brightness": 255,
             "staticColors": [
-                {"lights": list(range(ranges[zid][0], ranges[zid][1] + 1)),
-                 "color": scale_color(pattern["colors"][0], round(pattern.get("brightness", 255) * design.get("brightness", 255) / 255))}
+                {
+                    "lights": list(range(ranges[zid][0], ranges[zid][1] + 1)),
+                    "color": scale_color(
+                        pattern["colors"][0],
+                        round(
+                            pattern.get("brightness", 255)
+                            * design.get("brightness", 255)
+                            / 255
+                        ),
+                    ),
+                }
                 for zid, pattern in patterns.items()
             ],
         }
 
     @serialized
-    async def async_play_zone_pattern(self, device_id: str, zone_id: str, pattern: dict[str, Any]) -> None:
+    async def async_play_zone_pattern(
+        self, device_id: str, zone_id: str, pattern: dict[str, Any]
+    ) -> None:
         """Play a saved palette in one zone without changing its neighbors."""
         if zone_id not in {z.get("id") for z in self.zones(device_id)}:
             raise HomeAssistantError("This zone no longer exists")
-        desired = self._zone_entries(device_id) if self.device_state(device_id).get("onState") else {}
+        desired = (
+            self._zone_entries(device_id)
+            if self.device_state(device_id).get("onState")
+            else {}
+        )
         desired[zone_id] = {"zoneId": zone_id, "pattern": deepcopy(pattern)}
         await self._async_play_zones(device_id, desired)
 
@@ -958,13 +1108,23 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if spec is None:
             desired.pop(zone_id, None)
         else:
-            entry = desired.get(zone_id, {"zoneId": zone_id, "pattern": self.build_pattern(device_id, [0xFFFFFF], EFFECT_SOLID)})
+            entry = desired.get(
+                zone_id,
+                {
+                    "zoneId": zone_id,
+                    "pattern": self.build_pattern(device_id, [0xFFFFFF], EFFECT_SOLID),
+                },
+            )
             pattern = entry["pattern"]
             if "color" in spec:
                 pattern["colors"] = [spec["color"]]
             if "brightness" in spec:
                 pattern["brightness"] = spec["brightness"]
             if "animation" in spec:
-                pattern["animation"] = "motionless" if spec["animation"] == EFFECT_SOLID else spec["animation"]
+                pattern["animation"] = (
+                    "motionless"
+                    if spec["animation"] == EFFECT_SOLID
+                    else spec["animation"]
+                )
             desired[zone_id] = entry
         await self._async_play_zones(device_id, desired)

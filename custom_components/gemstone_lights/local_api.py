@@ -66,7 +66,9 @@ class GemstoneLocalApi:
         try:
             return validate_state(body["state"]["reported"]["currentlyPlaying"])
         except (KeyError, TypeError, ValueError) as err:
-            raise GemstoneLocalError("Controller returned invalid playing state") from err
+            raise GemstoneLocalError(
+                "Controller returned invalid playing state"
+            ) from err
 
     async def async_get_settings(self) -> dict[str, Any]:
         """Return hub settings (firmware, pixel counts, outputs, ...)."""
@@ -95,9 +97,7 @@ class GemstoneLocalApi:
                 payload.setdefault(mode, None)
 
         body = {
-            "state": {
-                "desired": {"currentlyPlaying": payload, "origin": LOCAL_ORIGIN}
-            }
+            "state": {"desired": {"currentlyPlaying": payload, "origin": LOCAL_ORIGIN}}
         }
         encoded = json.dumps(body)
         if len(encoded.encode()) > LOCAL_MAX_PAYLOAD:

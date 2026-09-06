@@ -181,7 +181,9 @@ class GemstoneLight(_GemstoneBaseLight):
         return {
             "playing_design": design.get("name"),
             "speed": self.coordinator.speed(self._device_id),
-            "control": "local" if self.coordinator.is_local(self._device_id) else "cloud",
+            "control": "local"
+            if self.coordinator.is_local(self._device_id)
+            else "cloud",
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -313,7 +315,9 @@ class GemstoneZoneLight(_GemstoneBaseLight):
         """Clear this zone, leaving the others as they are."""
         await self.coordinator.async_set_zone(self._device_id, self._zone_id, None)
 
-    async def async_play_library_pattern(self, pattern: str, folder: str | None = None) -> None:
+    async def async_play_library_pattern(
+        self, pattern: str, folder: str | None = None
+    ) -> None:
         """Play a complete library pattern in this zone only."""
         await self.coordinator.async_play_zone_pattern(
             self._device_id, self._zone_id, self._library_data(pattern, folder)

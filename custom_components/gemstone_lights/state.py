@@ -21,7 +21,11 @@ def _content(state: dict[str, Any]) -> Any:
 
 def _without_metadata(value: Any) -> Any:
     if isinstance(value, dict):
-        return {key: _without_metadata(item) for key, item in value.items() if key not in ("id", "name", "preview") and item is not None}
+        return {
+            key: _without_metadata(item)
+            for key, item in value.items()
+            if key not in ("id", "name", "preview") and item is not None
+        }
     if isinstance(value, list):
         return [_without_metadata(item) for item in value]
     return value

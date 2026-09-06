@@ -27,12 +27,18 @@ async def test_color_replaces_other_modes(hass, http):
     http.post("http://192.0.2.10/device-control/play", status=200)
 
     # When a white-channel color is played at reduced brightness.
-    await client.async_play({"onState": True, "colorB": {"value": 4278190080, "brightness": 80}})
+    await client.async_play(
+        {"onState": True, "colorB": {"value": 4278190080, "brightness": 80}}
+    )
 
     # Then the RGBW payload survives and every competing mode is cleared.
     request = next(iter(http.requests.values()))[0]
     playing = json.loads(request.kwargs["data"])["state"]["desired"]["currentlyPlaying"]
     assert playing == {
-        "onState": True, "colorB": {"value": 4278190080, "brightness": 80},
-        "pattern": None, "architectural": None, "impulse": None, "playlist": None,
+        "onState": True,
+        "colorB": {"value": 4278190080, "brightness": 80},
+        "pattern": None,
+        "architectural": None,
+        "impulse": None,
+        "playlist": None,
     }

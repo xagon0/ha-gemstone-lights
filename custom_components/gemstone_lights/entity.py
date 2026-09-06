@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.core import callback
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import GemstoneCoordinator
@@ -67,4 +67,6 @@ class GemstoneEntity(CoordinatorEntity[GemstoneCoordinator]):
     @property
     def available(self) -> bool:
         """Return True when the controller is reachable."""
-        return bool(super().available and self.coordinator.device_available(self._device_id))
+        return bool(
+            super().available and self.coordinator.device_available(self._device_id)
+        )

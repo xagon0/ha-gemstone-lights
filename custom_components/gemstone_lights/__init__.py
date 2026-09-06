@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import logging
-import voluptuous as vol
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import service
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 
 from .api import GemstoneApi
-from homeassistant.helpers.storage import Store
-from homeassistant.helpers import config_validation as cv, service
 from .const import (
     CONF_EMAIL,
     CONF_ENABLE_LIBRARY,
@@ -40,7 +41,10 @@ type GemstoneConfigEntry = ConfigEntry[GemstoneCoordinator]
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register the library action even when no account is currently loaded."""
     service.async_register_platform_entity_service(
-        hass, DOMAIN, "play_library_pattern", entity_domain="light",
+        hass,
+        DOMAIN,
+        "play_library_pattern",
+        entity_domain="light",
         schema={vol.Required("pattern"): cv.string, vol.Optional("folder"): cv.string},
         func="async_play_library_pattern",
     )

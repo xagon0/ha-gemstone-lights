@@ -98,7 +98,9 @@ class GemstoneApi:
             COGNITO_CLIENT_ID,
             user_pool_region=AWS_REGION,
             username=self._email,
-            botocore_config=Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 1}),
+            botocore_config=Config(
+                connect_timeout=5, read_timeout=10, retries={"max_attempts": 1}
+            ),
         )
         user.authenticate(password=self._password)
         return {
@@ -118,7 +120,9 @@ class GemstoneApi:
             id_token=self._id_token,
             access_token=self._access_token,
             refresh_token=self._refresh_token,
-            botocore_config=Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 1}),
+            botocore_config=Config(
+                connect_timeout=5, read_timeout=10, retries={"max_attempts": 1}
+            ),
         )
         user.renew_access_token()
         return {
@@ -140,13 +144,21 @@ class GemstoneApi:
         except ClientError as err:
             code = err.response.get("Error", {}).get("Code")
             if code in {
-                "NotAuthorizedException", "UserNotFoundException",
-                "UserNotConfirmedException", "PasswordResetRequiredException",
+                "NotAuthorizedException",
+                "UserNotFoundException",
+                "UserNotConfirmedException",
+                "PasswordResetRequiredException",
             }:
-                raise GemstoneAuthError("Gemstone rejected the account credentials") from err
-            raise GemstoneApiError("Gemstone authentication is temporarily unavailable") from err
+                raise GemstoneAuthError(
+                    "Gemstone rejected the account credentials"
+                ) from err
+            raise GemstoneApiError(
+                "Gemstone authentication is temporarily unavailable"
+            ) from err
         except Exception as err:
-            raise GemstoneApiError("Could not connect to Gemstone authentication") from err
+            raise GemstoneApiError(
+                "Could not connect to Gemstone authentication"
+            ) from err
         self._store(tokens)
         _LOGGER.debug("Gemstone login succeeded for %s", self._email)
 
@@ -164,11 +176,18 @@ class GemstoneApi:
                     self._store(tokens)
                     return
                 except ClientError as err:
-                    if err.response.get("Error", {}).get("Code") != "NotAuthorizedException":
-                        raise GemstoneApiError("Could not renew the Gemstone session") from err
+                    if (
+                        err.response.get("Error", {}).get("Code")
+                        != "NotAuthorizedException"
+                    ):
+                        raise GemstoneApiError(
+                            "Could not renew the Gemstone session"
+                        ) from err
                     _LOGGER.debug("Refresh token expired; signing in again")
                 except Exception as err:
-                    raise GemstoneApiError("Could not renew the Gemstone session") from err
+                    raise GemstoneApiError(
+                        "Could not renew the Gemstone session"
+                    ) from err
 
             await self.async_login()
 
@@ -234,19 +253,29 @@ class GemstoneApi:
                         try:
                             return validate_state(data)
                         except ValueError as err:
-                            raise GemstoneApiError(f"{path} returned invalid state") from err
-                    if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+                            raise GemstoneApiError(
+                                f"{path} returned invalid state"
+                            ) from err
+                    if not isinstance(data, list) or any(
+                        not isinstance(item, dict) for item in data
+                    ):
                         raise GemstoneApiError(f"{path} returned an invalid catalog")
                     try:
                         for item in data:
-                            if path == "/homegroup/devices" and item.get("hub") is not None and not isinstance(item["hub"], dict):
+                            if (
+                                path == "/homegroup/devices"
+                                and item.get("hub") is not None
+                                and not isinstance(item["hub"], dict)
+                            ):
                                 raise ValueError("Invalid hub metadata")
                             if path == "/deviceControl/architectural/list":
                                 validate_design(item)
                             if item.get("patternData") is not None:
                                 validate_pattern(item["patternData"])
                     except ValueError as err:
-                        raise GemstoneApiError(f"{path} returned invalid catalog content") from err
+                        raise GemstoneApiError(
+                            f"{path} returned invalid catalog content"
+                        ) from err
                 return data
         except asyncio.TimeoutError as err:
             raise GemstoneApiError(f"Timeout calling {method} {path}") from err
@@ -332,9 +361,7 @@ class GemstoneApi:
             json_body={"color": color},
         )
 
-    async def async_play_pattern(
-        self, device_id: str, pattern: dict[str, Any]
-    ) -> None:
+    async def async_play_pattern(self, device_id: str, pattern: dict[str, Any]) -> None:
         """Play a whole-controller pattern."""
         await self._request(
             "PUT",

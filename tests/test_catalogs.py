@@ -12,7 +12,9 @@ async def test_successful_empty_catalog_removes_deleted_patterns(coordinator, ve
     assert coordinator.patterns() == []
 
 
-async def test_partial_folder_failure_retains_the_previous_complete_catalog(coordinator, vendor):
+async def test_partial_folder_failure_retains_the_previous_complete_catalog(
+    coordinator, vendor
+):
     # Given a complete old catalog and a refresh whose second folder cannot be read.
     previous = [{"name": "Previous", "data": {"name": "Previous"}}]
     coordinator._patterns = previous

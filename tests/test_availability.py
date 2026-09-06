@@ -3,7 +3,9 @@
 from custom_components.gemstone_lights.light import GemstoneLight
 
 
-async def test_failed_state_read_preserves_state_but_marks_unavailable(coordinator, vendor):
+async def test_failed_state_read_preserves_state_but_marks_unavailable(
+    coordinator, vendor
+):
     # Given the last successful state is on and the next state endpoint fails.
     vendor.failures["/deviceControl/currentlyPlaying"] = 503
     light = GemstoneLight(coordinator, "hub")
@@ -16,7 +18,9 @@ async def test_failed_state_read_preserves_state_but_marks_unavailable(coordinat
 
 async def test_local_read_overrides_stale_cloud_offline_flag(coordinator, vendor):
     # Given the cloud claims offline but the LAN controller answers normally.
-    vendor.devices[0].update(online=False, hub={"localIp": "192.0.2.10", "tcpEnabled": True})
+    vendor.devices[0].update(
+        online=False, hub={"localIp": "192.0.2.10", "tcpEnabled": True}
+    )
     light = GemstoneLight(coordinator, "hub")
     # When the coordinator reads the controller locally.
     coordinator.data = await coordinator._async_update_data()

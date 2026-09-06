@@ -5,10 +5,31 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from custom_components.gemstone_lights.api import GemstoneApiError
 from custom_components.gemstone_lights.const import API_BASE_URL
-from custom_components.gemstone_lights.local_api import GemstoneLocalApi, GemstoneLocalError
+from custom_components.gemstone_lights.local_api import (
+    GemstoneLocalApi,
+    GemstoneLocalError,
+)
 
 
-@pytest.mark.parametrize("body", [[], {"state": None}, {"state": {"reported": {"currentlyPlaying": {}}}}, {"state": {"reported": {"currentlyPlaying": {"onState": True, "pattern": []}}}}, {"state": {"reported": {"currentlyPlaying": {"onState": True, "architectural": {"zonePatterns": ["broken"]}}}}}])
+@pytest.mark.parametrize(
+    "body",
+    [
+        [],
+        {"state": None},
+        {"state": {"reported": {"currentlyPlaying": {}}}},
+        {"state": {"reported": {"currentlyPlaying": {"onState": True, "pattern": []}}}},
+        {
+            "state": {
+                "reported": {
+                    "currentlyPlaying": {
+                        "onState": True,
+                        "architectural": {"zonePatterns": ["broken"]},
+                    }
+                }
+            }
+        },
+    ],
+)
 async def test_malformed_local_state_uses_transport_error(hass, http, body):
     # Given valid JSON that cannot describe controller state.
     client = GemstoneLocalApi(async_get_clientsession(hass), "192.0.2.10")

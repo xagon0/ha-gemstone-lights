@@ -13,7 +13,9 @@ def validate_pattern(pattern: Any) -> None:
     if not isinstance(pattern, dict):
         raise ValueError("Invalid pattern")
     colors = pattern.get("colors", [])
-    if not isinstance(colors, list) or any(type(c) is not int or not 0 <= c <= 0xFFFFFFFF for c in colors):
+    if not isinstance(colors, list) or any(
+        type(c) is not int or not 0 <= c <= 0xFFFFFFFF for c in colors
+    ):
         raise ValueError("Invalid pattern colors")
     _brightness(pattern.get("brightness"))
 
@@ -25,7 +27,9 @@ def validate_design(design: Any) -> None:
     _brightness(design.get("brightness"))
     for key in ("zonePatterns", "staticColors"):
         entries = design.get(key) or []
-        if not isinstance(entries, list) or any(not isinstance(e, dict) for e in entries):
+        if not isinstance(entries, list) or any(
+            not isinstance(e, dict) for e in entries
+        ):
             raise ValueError(f"Invalid {key}")
         for entry in entries:
             if key == "zonePatterns":
@@ -34,7 +38,9 @@ def validate_design(design: Any) -> None:
                 validate_pattern(entry.get("pattern"))
             else:
                 lights = entry.get("lights")
-                if not isinstance(lights, list) or any(type(p) is not int or not 0 <= p < 65536 for p in lights):
+                if not isinstance(lights, list) or any(
+                    type(p) is not int or not 0 <= p < 65536 for p in lights
+                ):
                     raise ValueError("Invalid pixel indices")
                 color = entry.get("color")
                 if type(color) is not int or not 0 <= color <= 0xFFFFFFFF:
@@ -49,7 +55,9 @@ def validate_state(value: Any) -> dict[str, Any]:
         if value.get(mode) is not None and not isinstance(value[mode], dict):
             raise ValueError(f"Invalid {mode}")
     for color in (value.get("color"), (value.get("colorB") or {}).get("value")):
-        if color is not None and (type(color) is not int or not 0 <= color <= 0xFFFFFFFF):
+        if color is not None and (
+            type(color) is not int or not 0 <= color <= 0xFFFFFFFF
+        ):
             raise ValueError("Invalid RGBW color")
     if color_b := value.get("colorB"):
         if color_b.get("value") is None:

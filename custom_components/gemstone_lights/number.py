@@ -17,7 +17,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up an animation speed control per controller."""
-    async_add_discovered_entities(entry, async_add_entities, lambda coordinator, device_id: [GemstoneSpeed(coordinator, device_id)])
+    async_add_discovered_entities(
+        entry,
+        async_add_entities,
+        lambda coordinator, device_id: [GemstoneSpeed(coordinator, device_id)],
+    )
 
 
 class GemstoneSpeed(GemstoneEntity, NumberEntity):

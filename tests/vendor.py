@@ -13,10 +13,12 @@ class Vendor:
     def __init__(self, http):
         self.devices = [{"id": "hub", "name": "House", "online": True}]
         self.states = {"hub": {"onState": True, "color": 255}}
-        self.zones = {"hub": [
-            {"id": "front", "name": "Front", "lights": [3, 10, 12]},
-            {"id": "back", "name": "Back", "lights": [3, 13, 15]},
-        ]}
+        self.zones = {
+            "hub": [
+                {"id": "front", "name": "Front", "lights": [3, 10, 12]},
+                {"id": "back", "name": "Back", "lights": [3, 13, 15]},
+            ]
+        }
         self.designs = []
         self.folders = []
         self.patterns = {}
@@ -26,7 +28,9 @@ class Vendor:
         self.echo_writes = True
         self.first_write_started = None
         self.release_first_write = None
-        cloud = re.compile(r"https://mytpybpq12\.execute-api\.us-west-2\.amazonaws\.com/.*")
+        cloud = re.compile(
+            r"https://mytpybpq12\.execute-api\.us-west-2\.amazonaws\.com/.*"
+        )
         local = re.compile(r"http://192\.0\.2\.\d+/.*")
         http.get(cloud, callback=self.cloud, repeat=True)
         http.put(cloud, callback=self.cloud, repeat=True)
@@ -56,7 +60,9 @@ class Vendor:
         data = {
             "/homegroup/list": [{"id": "home"}],
             "/homegroup/devices": self.devices,
-            "/deviceControl/currentlyPlaying": self.states.get(device, {"onState": False}),
+            "/deviceControl/currentlyPlaying": self.states.get(
+                device, {"onState": False}
+            ),
             "/deviceControl/zone/list": self.zones.get(device, []),
             "/deviceControl/architectural/list": self.designs,
             "/folders/list": self.folders,
@@ -69,13 +75,26 @@ class Vendor:
     def local(self, url, **kwargs):
         if url.path in self.failures:
             return CallbackResult(status=self.failures[url.path])
-        device = next((d["id"] for d in self.devices if (d.get("hub") or {}).get("localIp") == url.host), "hub")
+        device = next(
+            (
+                d["id"]
+                for d in self.devices
+                if (d.get("hub") or {}).get("localIp") == url.host
+            ),
+            "hub",
+        )
         if "data" in kwargs:
             playing = json.loads(kwargs["data"])["state"]["desired"]["currentlyPlaying"]
             self.writes.append(("local", device, url.path, deepcopy(playing)))
             if self.echo_writes:
                 self.states.setdefault(device, {}).update(playing)
             return CallbackResult(status=200)
-        key = "currentlyPlaying" if url.path.endswith("currently-playing") else "hubSettings"
-        data = self.states[device] if key == "currentlyPlaying" else {"firmware": "1.1.5"}
+        key = (
+            "currentlyPlaying"
+            if url.path.endswith("currently-playing")
+            else "hubSettings"
+        )
+        data = (
+            self.states[device] if key == "currentlyPlaying" else {"firmware": "1.1.5"}
+        )
         return CallbackResult(payload={"state": {"reported": {key: deepcopy(data)}}})
