@@ -353,7 +353,7 @@ class GemstoneApi:
         )
 
     async def async_play_color(self, device_id: str, color: int) -> None:
-        """Show a single solid colour (0xRRGGBB)."""
+        """Show a single solid colour (little-endian packed RGBW)."""
         await self._request(
             "PUT",
             "/deviceControl/play/color",

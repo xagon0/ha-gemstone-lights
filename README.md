@@ -40,6 +40,9 @@ you saved in the app first.
 
 ## Installation
 
+Requires **Home Assistant 2026.9.1 or later**. Development and CI use that exact
+version with Python 3.14.2 or newer within 3.14.
+
 ### HACS (recommended)
 
 1. In HACS, choose **Integrations** → three-dot menu → **Custom repositories**.
@@ -80,6 +83,22 @@ a network that cannot see it — it stays on the cloud and retries every few
 minutes rather than delaying each update.
 
 To pin an address or force the cloud, use **Configure** on the integration.
+An address override belongs to the controller selected in that form. Legacy
+overrides are used automatically only when an account has one controller;
+accounts with multiple controllers must select which controller to override.
+
+### Restarting without internet
+
+After one successful online discovery, controller addresses, zones, and catalogs
+are saved in Home Assistant's local storage. A restart can then load known
+controllers and read their state over the LAN without first logging in to the
+cloud. Passwords and session tokens are not copied into this cache.
+
+Local commands must already be enabled, and the controller must still be reachable
+at its saved or configured address. Discovery of a changed DHCP address, initial
+account setup, catalog refreshes, and cloud-only commands still require internet.
+If cloud credentials expire, Home Assistant asks you to sign in again while
+reachable local controllers remain usable.
 
 ### What each path can do
 
@@ -136,17 +155,42 @@ it loaded.
 
 ## Notes and limitations
 
+- **Zone edits preserve neighboring patterns**, including their complete RGBW
+  palettes, speed, direction, and vendor settings. Parallel edits are queued per
+  controller and use the most recently accepted command.
+- **Solid zones have independent brightness over the LAN.** Dimming the whole
+  design retains their relative brightness. A zone-targeted library action plays
+  the complete library pattern only in that zone.
+- **External pixel layouts that cannot be represented by the configured zones**
+  produce a clear error on zone edits, so unrelated pixels are not silently lost.
+  Select a zone design first. Per-zone edits during playlists or music mode are
+  also unsupported.
+
 - **Brightness** is a real, separate value over local control. Over the cloud
   there is no brightness field for a solid colour, so it is folded into the
   colour instead.
+  HA remembers the original color for commands it sends, so dimming and restoring
+  brightness does not repeatedly scale an already-dimmed color. If an externally
+  changed cloud color has no separate brightness field, the original color and
+  dimmer setting cannot be reconstructed; HA uses the reported color at 255.
 - **Brightness applies to whatever is playing.** Dimming the light while a
   saved pattern, library pattern or design is on re-sends that same content
   with the new brightness, so multi-colour patterns and per-zone designs are
   kept. Changing only the effect likewise keeps the pattern's colours.
 - **State lags slightly.** The cloud takes a moment to reflect a change, so the
-  integration re-reads state a couple of seconds after each command and polls
-  every 30 seconds.
+  integration immediately shows accepted commands, protects them from stale
+  echoes for five seconds, re-reads state after commands, and polls every 30
+  seconds. Failed reads mark the affected controller unavailable instead of
+  reporting a false off state.
+- **Changing speed while off leaves the lights off.** It stores the speed for
+  future effects; running patterns are updated immediately.
 - **Music mode and playlists** are not implemented.
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the pinned test environment, behavior-test
+standards, and controller smoke-test procedure. The repository review is recorded
+in [REVIEW.md](REVIEW.md), and release changes in [CHANGELOG.md](CHANGELOG.md).
 
 ## The local API
 

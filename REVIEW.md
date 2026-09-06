@@ -1,4 +1,4 @@
-# Repository review
+# Repository review — 1.4.4 baseline
 
 Reviewed on 2026-09-06 at commit `357f38123a645a27cf3988c9db9aee17805cd00f` (integration 1.4.4).
 
@@ -188,4 +188,22 @@ Home Assistant references: [coordinated polling and error handling](https://deve
 5. Add CI and contributor documentation; run the tests and review the full diff.
 6. Perform a real-controller smoke test when the user's environment is available: power, color, RGBW, dim/brighten, multi-zone designs, simultaneous zone commands, cloud-only mode, and a controlled internet outage.
 
-Pending user decisions: Home Assistant version and control modes; local-only delivery versus PR/direct push; whether offline Home Assistant restarts are in scope. No runtime source changes or upstream writes have been made during this review.
+## Implementation outcome for 1.5.0
+
+Findings 1–17 have corresponding fixes and regression coverage in separate logical
+commits. The implementation targets Home Assistant 2026.9.1 and includes persisted
+metadata for startup without cloud access, as requested. One release PR preserves
+those commits when merged to main.
+
+Exactly one dedicated test covers each designated edge case: A, startup after an
+offline restart; B, simultaneous zone edits with a held HTTP response and stale
+cloud echoes. Both tests also failed when their respective fixes were temporarily
+removed, after which the source was restored.
+
+The remaining optional follow-ups are broader catalog-name disambiguation,
+redacted diagnostics, further coordinator decomposition, and reducing optional
+catalog/settings work during polling. These are not claimed as completed. Hardware
+protocol behavior still needs the live-controller checks in CONTRIBUTING.md;
+unsupported pixel layouts now fail explicitly instead of discarding content.
+
+See CHANGELOG.md for release behavior and CONTRIBUTING.md for reproducible tests.

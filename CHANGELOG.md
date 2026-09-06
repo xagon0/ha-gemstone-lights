@@ -1,0 +1,36 @@
+# Changelog
+
+## 1.5.0 — 2026-09-06
+
+Requires Home Assistant **2026.9.1 or later**; the supported baseline is raised
+from 2024.12. This release adds persistent offline recovery and corrects controller,
+zone, authentication, and entity behavior identified in the 1.4.4 repository review.
+
+- Restore known local controllers, zones, and cached catalogs after restarting
+  without internet. Initial discovery and cloud-only features still need the cloud.
+- Keep local lights usable during cloud outages and reauthentication. Report failed
+  devices as unavailable without inventing off states.
+- Serialize complete commands per controller, preserve neighboring zone palettes and
+  metadata, retain both concurrent zone edits, and keep other zones on when one is
+  switched off during whole-controller playback.
+- Route designs according to local capabilities; preserve independent RGBW zone
+  brightness and relative brightness when dimming a complete solid design offline.
+- Decode three-pixel local layouts correctly and reject zone edits that would
+  silently discard unrelated, unrepresentable pixel content.
+- Preserve logical color/brightness through cloud dimming, controller echoes,
+  power changes, and restarts; respect subsequently observed external changes.
+- Bind address overrides to a selected controller and validate host input.
+- Correct login error classification, token renewal, and bounded authentication
+  retries. Validate vendor response shapes before rendering or editing state.
+- Support zone-targeted library actions, discover new controllers on every platform,
+  preserve complete catalogs on partial failures, and remove deleted patterns after
+  successful empty refreshes.
+- Keep off controllers off when speed changes. Track local-enable tasks through
+  unload and allow retries after transient activation failures.
+- Add pinned Home Assistant behavior tests, meaningful network-boundary regression
+  tests, account-flow and lifecycle tests, and CI alongside HACS and hassfest.
+
+Tests simulate external HTTP, authentication, and storage I/O. The two dedicated
+edge-case regressions cover offline restart and simultaneous zone edits, and were
+also verified to fail when their respective fixes were deliberately removed.
+No live-controller smoke test was performed for this release.
