@@ -1,10 +1,20 @@
 # Changelog
 
+## 1.5.2 — 2026-09-06
+
+- Retain logical zone colors and brightness after master dimming through the
+  cloud. Hub2 copies the master level into each nested pattern's reported
+  brightness; reconcile that redundant field without treating it as another
+  brightness multiplier or losing the original palette.
+- Extend the hardware-derived regression to poll after master dimming before
+  brightening again. It reproduces the incorrect zone levels on 1.5.1.
+
 ## 1.5.1 — 2026-09-06
 
 - Correct independent brightness for animated zones sent through the cloud. Live
   testing on Hub2 firmware 1.1.5 found that cloud playback resets each nested
-  pattern's brightness to 255. Encode that dimming in every RGBW palette and
+  pattern's brightness to the master level (255 at full brightness). Encode
+  independent dimming in every RGBW palette and
   background color while retaining the logical color and level in Home Assistant.
 - Preserve those logical zone values through normalized controller echoes, local
   write failures, cloud power changes, and repeated dim/brighten operations.
