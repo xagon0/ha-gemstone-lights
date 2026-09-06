@@ -563,11 +563,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         client = self._local.get(device_id)
 
         def _cloud() -> Any:
-            from .color_util import pack, unpack  # noqa: PLC0415
-
-            channels = unpack(packed) or (0, 0, 0, 0)
-            scaled = [round(c * brightness / 255) for c in channels]
-            return self.api.async_play_color(device_id, pack(*scaled))
+            return self.api.async_play_color(device_id, scale_color(packed, brightness))
 
         await self._async_command(
             device_id,
