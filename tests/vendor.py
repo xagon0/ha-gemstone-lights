@@ -1,0 +1,73 @@
+"""Stateful external HTTP boundary used by behavior tests."""
+
+import json
+import re
+from copy import deepcopy
+
+from aioresponses import CallbackResult
+
+
+class Vendor:
+    """Emulate only vendor network responses, never integration helpers."""
+
+    def __init__(self, http):
+        self.devices = [{"id": "hub", "name": "House", "online": True}]
+        self.states = {"hub": {"onState": True, "color": 255}}
+        self.zones = {"hub": [
+            {"id": "front", "name": "Front", "lights": [3, 10, 12]},
+            {"id": "back", "name": "Back", "lights": [3, 13, 15]},
+        ]}
+        self.designs = []
+        self.folders = []
+        self.patterns = {}
+        self.writes = []
+        self.failures = {}
+        self.cloud_offline = False
+        self.echo_writes = True
+        cloud = re.compile(r"https://mytpybpq12\.execute-api\.us-west-2\.amazonaws\.com/.*")
+        local = re.compile(r"http://192\.0\.2\.\d+/.*")
+        http.get(cloud, callback=self.cloud, repeat=True)
+        http.put(cloud, callback=self.cloud, repeat=True)
+        http.get(local, callback=self.local, repeat=True)
+        http.post(local, callback=self.local, repeat=True)
+
+    def cloud(self, url, **kwargs):
+        path = url.path.removeprefix("/prod")
+        if self.cloud_offline or path in self.failures:
+            return CallbackResult(status=self.failures.get(path, 503))
+        device = url.query.get("deviceOrGroupId", url.query.get("deviceId", "hub"))
+        if "json" in kwargs and kwargs["json"] is not None:
+            body = deepcopy(kwargs["json"])
+            self.writes.append(("cloud", device, path, body))
+            if self.echo_writes and path != "/deviceControl/deviceSettings":
+                if "onState" in body:
+                    self.states.setdefault(device, {}).update(body)
+                else:
+                    self.states[device] = {"onState": True, **body}
+            return CallbackResult(payload={"data": None})
+        data = {
+            "/homegroup/list": [{"id": "home"}],
+            "/homegroup/devices": self.devices,
+            "/deviceControl/currentlyPlaying": self.states.get(device, {"onState": False}),
+            "/deviceControl/zone/list": self.zones.get(device, []),
+            "/deviceControl/architectural/list": self.designs,
+            "/folders/list": self.folders,
+            "/folders/pattern/list": self.patterns.get(url.query.get("folderId"), []),
+            "/downloads/folders/listGemstoneManaged": [],
+            "/downloads/folders/pattern/listGemstoneManaged": [],
+        }[path]
+        return CallbackResult(payload={"data": deepcopy(data)})
+
+    def local(self, url, **kwargs):
+        if url.path in self.failures:
+            return CallbackResult(status=self.failures[url.path])
+        device = next((d["id"] for d in self.devices if (d.get("hub") or {}).get("localIp") == url.host), "hub")
+        if "data" in kwargs:
+            playing = json.loads(kwargs["data"])["state"]["desired"]["currentlyPlaying"]
+            self.writes.append(("local", device, url.path, deepcopy(playing)))
+            if self.echo_writes:
+                self.states.setdefault(device, {}).update(playing)
+            return CallbackResult(status=200)
+        key = "currentlyPlaying" if url.path.endswith("currently-playing") else "hubSettings"
+        data = self.states[device] if key == "currentlyPlaying" else {"firmware": "1.1.5"}
+        return CallbackResult(payload={"state": {"reported": {key: deepcopy(data)}}})

@@ -14,6 +14,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.gemstone_lights.api import GemstoneApi
 from custom_components.gemstone_lights.coordinator import GemstoneCoordinator
+from .vendor import Vendor
 
 pytest_plugins = ["pytest_homeassistant_custom_component"]
 
@@ -54,7 +55,12 @@ async def api(hass):
 
 
 @pytest.fixture
-async def coordinator(hass, entry, api):
+def vendor(http):
+    return Vendor(http)
+
+
+@pytest.fixture
+async def coordinator(hass, entry, api, vendor):
     result = GemstoneCoordinator(hass, entry, api, enable_library=False)
     result._device_ids = ["hub"]
     result._zones = {"hub": [

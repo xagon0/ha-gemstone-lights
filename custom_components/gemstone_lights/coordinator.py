@@ -283,11 +283,12 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._local_ok[device_id] = False
                 self._local_retry_after[device_id] = dt_util.utcnow() + LOCAL_RETRY_BACKOFF
 
-        try:
-            return await self.api.async_get_state(device_id)
-        except GemstoneError as err:
-            _LOGGER.debug("State fetch failed for %s: %s", device_id, err)
-            return {}
+        return await self.api.async_get_state(device_id)
+
+    def device_available(self, device_id: str) -> bool:
+        """Use successful state reads, not the cloud's stale online flag."""
+        record = (self.data or {}).get(DATA_DEVICES, {}).get(device_id, {})
+        return record.get("available", bool(record.get(DATA_STATE)))
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch controller state (and the catalog when due)."""
@@ -315,9 +316,19 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 device_id = device.get("id")
                 if not device_id:
                     continue
+                available = True
+                try:
+                    state = await self._async_state_for(device_id, device)
+                except GemstoneAuthError:
+                    raise
+                except GemstoneError as err:
+                    _LOGGER.debug("State fetch failed for %s: %s", device_id, err)
+                    state = self.device_state(device_id)
+                    available = False
                 result[DATA_DEVICES][device_id] = {
                     DATA_INFO: device,
-                    DATA_STATE: await self._async_state_for(device_id, device),
+                    DATA_STATE: state,
+                    "available": available,
                     DATA_LOCAL: self.is_local(device_id),
                     DATA_SETTINGS: self._settings.get(device_id, {}),
                 }

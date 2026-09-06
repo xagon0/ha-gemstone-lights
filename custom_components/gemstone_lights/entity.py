@@ -46,4 +46,4 @@ class GemstoneEntity(CoordinatorEntity[GemstoneCoordinator]):
     @property
     def available(self) -> bool:
         """Return True when the controller is reachable."""
-        return bool(super().available and self._info.get("online", False))
+        return bool(super().available and self.coordinator.device_available(self._device_id))
