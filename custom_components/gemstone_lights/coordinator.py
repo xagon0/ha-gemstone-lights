@@ -461,6 +461,43 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             lambda: self.api.async_play_design(device_id, design),
         )
 
+    async def async_set_brightness(self, device_id: str, brightness: int) -> bool:
+        """Dim or brighten whatever is playing without replacing it.
+
+        A pattern or design carries its own brightness, so the same content is
+        sent again with just that field changed. This keeps every colour of a
+        multi-colour pattern and every zone of a design intact, which building
+        a fresh single-colour pattern would not. Returns False when a solid
+        colour (or nothing) is playing, since that path is handled elsewhere.
+        """
+        state = self.device_state(device_id)
+        brightness = max(1, min(255, int(brightness)))
+
+        if pattern := state.get("pattern"):
+            await self.async_play_pattern(
+                device_id, {**pattern, "brightness": brightness}
+            )
+            return True
+
+        if design := state.get("architectural"):
+            updated = {**design, "brightness": brightness}
+            # Zone designs keep a brightness per zone pattern as well.
+            if zone_patterns := design.get("zonePatterns"):
+                updated["zonePatterns"] = [
+                    {
+                        **entry,
+                        "pattern": {
+                            **(entry.get("pattern") or {}),
+                            "brightness": brightness,
+                        },
+                    }
+                    for entry in zone_patterns
+                ]
+            await self.async_play_design(device_id, updated)
+            return True
+
+        return False
+
 
     # -- Gemstone's official pattern library ---------------------------------
 

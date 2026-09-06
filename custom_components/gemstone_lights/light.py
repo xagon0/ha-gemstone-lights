@@ -194,6 +194,13 @@ class GemstoneLight(_GemstoneBaseLight):
             await self.coordinator.async_set_power(self._device_id, True)
             return
 
+        # Only the brightness changed: dim what is playing rather than
+        # replacing a saved pattern or design with a plain colour.
+        if ATTR_RGBW_COLOR not in kwargs and ATTR_EFFECT not in kwargs:
+            wanted = int(kwargs.get(ATTR_BRIGHTNESS) or self.brightness or 255)
+            if await self.coordinator.async_set_brightness(self._device_id, wanted):
+                return
+
         rgbw, brightness, effect = self._resolve(kwargs)
 
         if effect == EFFECT_SOLID:
@@ -202,8 +209,13 @@ class GemstoneLight(_GemstoneBaseLight):
             )
             return
 
+        # Keep a multi-colour pattern's palette unless a colour was chosen.
+        colors = [pack(*rgbw)]
+        if ATTR_RGBW_COLOR not in kwargs and (playing := self._pattern):
+            colors = list(playing.get("colors") or colors)
+
         pattern = self.coordinator.build_pattern(
-            self._device_id, [pack(*rgbw)], effect, brightness=brightness
+            self._device_id, colors, effect, brightness=brightness
         )
         await self.coordinator.async_play_pattern(self._device_id, pattern)
 

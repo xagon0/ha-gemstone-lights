@@ -139,6 +139,10 @@ it loaded.
 - **Brightness** is a real, separate value over local control. Over the cloud
   there is no brightness field for a solid colour, so it is folded into the
   colour instead.
+- **Brightness applies to whatever is playing.** Dimming the light while a
+  saved pattern, library pattern or design is on re-sends that same content
+  with the new brightness, so multi-colour patterns and per-zone designs are
+  kept. Changing only the effect likewise keeps the pattern's colours.
 - **State lags slightly.** The cloud takes a moment to reflect a change, so the
   integration re-reads state a couple of seconds after each command and polls
   every 30 seconds.
