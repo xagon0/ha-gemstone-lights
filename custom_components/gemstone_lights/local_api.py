@@ -18,6 +18,7 @@ from typing import Any
 import aiohttp
 
 from .const import LOCAL_MAX_PAYLOAD, LOCAL_ORIGIN, LOCAL_TIMEOUT
+from .validation import validate_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,7 +51,10 @@ class GemstoneLocalApi:
             ) as resp:
                 if resp.status >= 400:
                     raise GemstoneLocalError(f"GET {path} returned {resp.status}")
-                return json.loads(await resp.text())
+                body = json.loads(await resp.text())
+                if not isinstance(body, dict):
+                    raise GemstoneLocalError(f"GET {path} returned an invalid object")
+                return body
         except (TimeoutError, asyncio.TimeoutError) as err:
             raise GemstoneLocalError(f"Timeout on GET {path}") from err
         except (aiohttp.ClientError, ValueError) as err:
@@ -59,12 +63,21 @@ class GemstoneLocalApi:
     async def async_get_state(self) -> dict[str, Any]:
         """Return the controller's ``currentlyPlaying`` object."""
         body = await self._get("/device-state/currently-playing")
-        return body.get("state", {}).get("reported", {}).get("currentlyPlaying", {})
+        try:
+            return validate_state(body["state"]["reported"]["currentlyPlaying"])
+        except (KeyError, TypeError, ValueError) as err:
+            raise GemstoneLocalError("Controller returned invalid playing state") from err
 
     async def async_get_settings(self) -> dict[str, Any]:
         """Return hub settings (firmware, pixel counts, outputs, ...)."""
         body = await self._get("/device-state/hub-settings")
-        return body.get("state", {}).get("reported", {}).get("hubSettings", {})
+        try:
+            settings = body["state"]["reported"]["hubSettings"]
+            if not isinstance(settings, dict):
+                raise ValueError("Invalid settings")
+            return settings
+        except (KeyError, TypeError, ValueError) as err:
+            raise GemstoneLocalError("Controller returned invalid settings") from err
 
     async def async_play(
         self, currently_playing: dict[str, Any], *, null_modes: bool = True

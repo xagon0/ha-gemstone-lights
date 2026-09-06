@@ -34,6 +34,7 @@ from .const import (
     COGNITO_USER_POOL_ID,
     REQUEST_TIMEOUT,
 )
+from .validation import validate_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -216,6 +217,8 @@ class GemstoneApi:
                     )
 
                 if not text:
+                    if method == "GET":
+                        raise GemstoneApiError(f"{path} returned an empty response")
                     return None
                 try:
                     body = json.loads(text)
@@ -224,7 +227,16 @@ class GemstoneApi:
                         f"{method} {path} returned invalid JSON"
                     ) from err
 
-                return body.get("data") if isinstance(body, dict) else body
+                data = body.get("data") if isinstance(body, dict) else body
+                if method == "GET":
+                    if path == "/deviceControl/currentlyPlaying":
+                        try:
+                            return validate_state(data)
+                        except ValueError as err:
+                            raise GemstoneApiError(f"{path} returned invalid state") from err
+                    if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+                        raise GemstoneApiError(f"{path} returned an invalid catalog")
+                return data
         except asyncio.TimeoutError as err:
             raise GemstoneApiError(f"Timeout calling {method} {path}") from err
         except aiohttp.ClientError as err:
