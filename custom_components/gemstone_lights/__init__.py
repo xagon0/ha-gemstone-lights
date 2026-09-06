@@ -27,6 +27,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import GemstoneCoordinator
+from .services import register_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ type GemstoneConfigEntry = ConfigEntry[GemstoneCoordinator]
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register the library action even when no account is currently loaded."""
+    register_services(hass)
     service.async_register_platform_entity_service(
         hass,
         DOMAIN,

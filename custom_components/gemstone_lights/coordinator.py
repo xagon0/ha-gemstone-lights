@@ -27,6 +27,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
+from .catalog import LocalCatalog
 from .commands import serialized
 from .const import (
     CATALOG_REFRESH_INTERVAL,
@@ -77,6 +78,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
         )
         self.api = api
+        self.catalog = LocalCatalog(self)
         self._host_override = host_override
         self._host_device_id = host_device_id
         self._prefer_local = prefer_local or api is None
@@ -127,6 +129,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if CONF_LOCAL_DEVICE not in self.config_entry.data:
                 return
             cached = {"devices": [self.config_entry.data[CONF_LOCAL_DEVICE]]}
+        self.catalog.restore(cached.get("local_catalog"))
         devices = cached.get("devices", [])
         if not isinstance(devices, list) or any(
             not isinstance(d, dict) or not d.get("id") for d in devices
@@ -178,6 +181,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cached = deepcopy(
             {
                 "devices": devices,
+                "local_catalog": self.catalog.data,
                 "zones": self._zones,
                 "designs": self._designs,
                 "patterns": self._patterns,
@@ -261,7 +265,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def zones(self, device_id: str) -> list[dict[str, Any]]:
         """Return the zones configured on a controller."""
-        return self._zones.get(device_id, [])
+        return self.catalog.merge("zone", device_id, self._zones.get(device_id, []))
 
     def device_info_raw(self, device_id: str) -> dict[str, Any]:
         """Return the raw controller record from the cloud."""
@@ -283,11 +287,17 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def designs(self, device_id: str) -> list[dict[str, Any]]:
         """Return saved designs for a controller."""
-        return (self.data or {}).get(DATA_DESIGNS, {}).get(device_id, [])
+        return self.catalog.merge(
+            "design",
+            device_id,
+            (self.data or {}).get(DATA_DESIGNS, {}).get(device_id, []),
+        )
 
     def patterns(self) -> list[dict[str, Any]]:
         """Return the account's patterns."""
-        return (self.data or {}).get(DATA_PATTERNS, [])
+        return self.catalog.merge(
+            "pattern", None, (self.data or {}).get(DATA_PATTERNS, [])
+        )
 
     def settings(self, device_id: str) -> dict[str, Any]:
         """Return hub settings read locally (empty when cloud-only)."""
@@ -866,7 +876,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for entries in grouped.values():
             entries.sort(key=lambda e: e["name"])
-        self._library = grouped
+        self._library = {**grouped, **self.catalog.data["library"]}
+        self._library_folders.update(self.catalog.data["library_folders"])
         self._library_refreshed = dt_util.utcnow()
         self._library_retry_after = None
         _LOGGER.debug(

@@ -105,6 +105,102 @@
           "description": "Optional library folder to search within."
         }
       }
+    },
+    "save_content": {
+      "name": "Save local content",
+      "description": "Create or replace a pattern, design or zone in Home Assistant. Vendor catalogs are unchanged.",
+      "fields": {
+        "kind": {
+          "name": "Kind",
+          "description": "pattern, design or zone"
+        },
+        "name": {
+          "name": "Name",
+          "description": "Saving the same name replaces the local item."
+        },
+        "content": {
+          "name": "Content",
+          "description": "Pattern/design object, or a zone object with inclusive start and end pixel indices (0\u20134095)."
+        },
+        "folder": {
+          "name": "Folder",
+          "description": "Optional label for a saved pattern."
+        },
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "delete_content": {
+      "name": "Delete local content",
+      "description": "Delete a local item. An imported vendor item with the same name becomes visible again.",
+      "fields": {
+        "kind": {
+          "name": "Kind",
+          "description": "The type of item to delete."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The local name to delete."
+        },
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "export_catalog": {
+      "name": "Export catalog",
+      "description": "Return patterns, designs, zones and downloaded library content for a portable local backup.",
+      "fields": {
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "import_catalog": {
+      "name": "Import catalog",
+      "description": "Merge a version 1 export into local storage. Matching names are replaced after the entire input validates.",
+      "fields": {
+        "catalog": {
+          "name": "Catalog",
+          "description": "The object returned by Export catalog."
+        },
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "save_current": {
+      "name": "Save current content",
+      "description": "Save the current pattern, solid color or design to the local catalog.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name for the saved pattern or design."
+        },
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light."
+        }
+      }
+    },
+    "play_content": {
+      "name": "Play custom content",
+      "description": "Play a pattern or design object without saving it. Patterns may target a zone; designs require the whole controller.",
+      "fields": {
+        "kind": {
+          "name": "Kind",
+          "description": "pattern or design"
+        },
+        "content": {
+          "name": "Content",
+          "description": "The pattern or design object to play."
+        }
+      }
     }
   }
 }
