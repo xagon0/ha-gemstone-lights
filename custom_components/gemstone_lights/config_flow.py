@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
+from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -20,7 +21,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import SelectSelector, SelectSelectorConfig
 
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
+from .bluetooth_api import GemstoneBluetoothApi
 from .const import (
+    CONF_BLUETOOTH_ADDRESS,
     CONF_EMAIL,
     CONF_ENABLE_LIBRARY,
     CONF_ENABLE_LOCAL,
@@ -48,6 +51,7 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_ENABLE_LOCAL, default=True): bool,
         vol.Optional(CONF_ENABLE_LIBRARY, default=True): bool,
         vol.Optional(CONF_HOST, default=""): str,
+        vol.Optional(CONF_BLUETOOTH_ADDRESS, default=""): str,
     }
 )
 
@@ -111,7 +115,9 @@ class GemstoneConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         if user_input is not None:
             return await self.async_step_cloud(user_input)
-        return self.async_show_menu(step_id="user", menu_options=["local", "cloud"])
+        return self.async_show_menu(
+            step_id="user", menu_options=["local", "bluetooth", "cloud"]
+        )
 
     async def async_step_local(
         self, user_input: dict[str, Any] | None = None
@@ -173,6 +179,90 @@ class GemstoneConfigFlow(ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_HOST): str,
                     vol.Optional("name", default="Gemstone Lights"): str,
+                }
+            ),
+        )
+
+    async def async_step_bluetooth(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Read a provisioned controller directly through HA's Bluetooth adapters."""
+        errors = {}
+        if user_input is not None:
+            address = user_input[CONF_BLUETOOTH_ADDRESS].strip().upper()
+            if not re.fullmatch(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}", address):
+                errors[CONF_BLUETOOTH_ADDRESS] = "invalid_bluetooth_address"
+            else:
+                await self.async_set_unique_id(f"bluetooth:{address}")
+                self._abort_if_unique_id_configured()
+                for entry in self._async_current_entries():
+                    if (
+                        entry.options.get(
+                            CONF_BLUETOOTH_ADDRESS,
+                            entry.data.get(CONF_BLUETOOTH_ADDRESS),
+                        )
+                        == address
+                    ):
+                        return self.async_abort(reason="already_configured")
+                client = GemstoneBluetoothApi(
+                    address,
+                    lambda: async_ble_device_from_address(
+                        self.hass, address, connectable=True
+                    ),
+                )
+                try:
+                    settings = await client.async_get_settings()
+                    await client.async_get_state()
+                except GemstoneLocalError:
+                    errors["base"] = "cannot_connect_bluetooth"
+                else:
+                    host = settings.get("localIp")
+                    for entry in self._async_current_entries():
+                        coordinator = getattr(entry, "runtime_data", None)
+                        if (
+                            host
+                            and coordinator
+                            and any(
+                                coordinator.local_host(device_id) == host
+                                for device_id in coordinator.device_ids
+                            )
+                        ):
+                            return self.async_abort(reason="already_configured")
+                    name = (
+                        user_input.get("name", "").strip()
+                        or settings.get("bluetoothName")
+                        or "Gemstone Lights"
+                    )
+                    return self.async_create_entry(
+                        title=name,
+                        data={
+                            CONF_LOCAL_ONLY: True,
+                            CONF_BLUETOOTH_ADDRESS: address,
+                            CONF_LOCAL_DEVICE: {
+                                "id": f"bluetooth:{address}",
+                                "name": name,
+                                "firmware": settings.get("firmware"),
+                                "hub": {
+                                    k: settings[k]
+                                    for k in (
+                                        "pixelCount",
+                                        "rgbwSequence",
+                                        "pixelOutputNames",
+                                        "localIp",
+                                        "tcpEnabled",
+                                    )
+                                    if k in settings
+                                },
+                            },
+                        },
+                    )
+        return self.async_show_form(
+            step_id="bluetooth",
+            errors=errors,
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_BLUETOOTH_ADDRESS): str,
+                    vol.Optional("name", default=""): str,
                 }
             ),
         )
@@ -265,9 +355,12 @@ class GemstoneOptionsFlow(OptionsFlow):
         )
         if user_input is not None:
             host = (user_input.get(CONF_HOST) or "").strip()
+            address = (user_input.get(CONF_BLUETOOTH_ADDRESS) or "").strip().upper()
             selected = user_input.get(CONF_HOST_DEVICE) or ""
-            if host:
-                if not valid_host(host):
+            if address and not re.fullmatch(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}", address):
+                errors[CONF_BLUETOOTH_ADDRESS] = "invalid_bluetooth_address"
+            if host or address:
+                if host and not valid_host(host):
                     errors[CONF_HOST] = "invalid_host"
                 if not selected and len(device_ids) == 1:
                     selected = device_ids[0]
@@ -281,8 +374,13 @@ class GemstoneOptionsFlow(OptionsFlow):
                 and coordinator
                 and any(
                     not (
-                        (host and selected == device_id)
+                        ((host or address) and selected == device_id)
                         or coordinator.local_host(device_id)
+                        or (
+                            coordinator.bluetooth_address(device_id)
+                            if CONF_BLUETOOTH_ADDRESS not in user_input
+                            else None
+                        )
                         or (
                             coordinator.device_info_raw(device_id).get("hub") or {}
                         ).get("localIp")
@@ -305,6 +403,7 @@ class GemstoneOptionsFlow(OptionsFlow):
                     CONF_ENABLE_LOCAL: user_input.get(CONF_ENABLE_LOCAL, True),
                     CONF_ENABLE_LIBRARY: user_input.get(CONF_ENABLE_LIBRARY, True),
                     CONF_HOST: host,
+                    CONF_BLUETOOTH_ADDRESS: address,
                     CONF_HOST_DEVICE: selected,
                 }
             )
@@ -312,6 +411,14 @@ class GemstoneOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
-                schema, self.config_entry.options
+                schema,
+                {
+                    **{
+                        key: self.config_entry.data[key]
+                        for key in (CONF_HOST, CONF_BLUETOOTH_ADDRESS)
+                        if key in self.config_entry.data
+                    },
+                    **self.config_entry.options,
+                },
             ),
         )

@@ -25,6 +25,7 @@ APP_HEADERS: Final = {
 }
 
 # --- Integration -----------------------------------------------------------
+CONF_BLUETOOTH_ADDRESS: Final = "bluetooth_address"
 CONF_LOCAL_ONLY: Final = "local_only"
 CONF_LOCAL_DEVICE: Final = "local_device"
 CONF_EMAIL: Final = "email"
