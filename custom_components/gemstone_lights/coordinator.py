@@ -49,6 +49,7 @@ from .local_api import GemstoneLocalApi, GemstoneLocalError
 from .state import encode_cloud_design, same_content, scale_color
 
 _LOGGER = logging.getLogger(__name__)
+_COMMAND_SETTLE_SECONDS = 5
 
 
 class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -220,7 +221,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Publish a successful command immediately and protect it from stale echoes."""
         self._state_versions[device_id] = self._state_versions.get(device_id, 0) + 1
-        self._pending_states[device_id] = (monotonic() + 5, deepcopy(state))
+        self._pending_states[device_id] = (
+            monotonic() + _COMMAND_SETTLE_SECONDS,
+            deepcopy(state),
+        )
         self._state_aliases[device_id] = {
             "logical": deepcopy(state),
             "wire": deepcopy(wire_state or state),
@@ -241,7 +245,11 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._refresh_cancel = None
             await self.async_request_refresh()
 
-        self._refresh_cancel = async_call_later(self.hass, 2, refresh)
+        # Read hardware after optimistic state protection expires; an earlier
+        # refresh would merely republish the requested state, hiding mismatches.
+        self._refresh_cancel = async_call_later(
+            self.hass, _COMMAND_SETTLE_SECONDS + 0.1, refresh
+        )
 
     @property
     def device_ids(self) -> list[str]:
