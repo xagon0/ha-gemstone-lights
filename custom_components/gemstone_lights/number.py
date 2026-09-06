@@ -8,7 +8,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import GemstoneConfigEntry
 from .coordinator import GemstoneCoordinator
-from .entity import GemstoneEntity
+from .entity import GemstoneEntity, async_add_discovered_entities
 
 
 async def async_setup_entry(
@@ -17,10 +17,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up an animation speed control per controller."""
-    coordinator = entry.runtime_data
-    async_add_entities(
-        GemstoneSpeed(coordinator, device_id) for device_id in coordinator.device_ids
-    )
+    async_add_discovered_entities(entry, async_add_entities, lambda coordinator, device_id: [GemstoneSpeed(coordinator, device_id)])
 
 
 class GemstoneSpeed(GemstoneEntity, NumberEntity):

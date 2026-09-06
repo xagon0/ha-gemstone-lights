@@ -74,3 +74,35 @@ async def coordinator(hass, entry, api, vendor):
     entry.runtime_data = result
     yield result
     await result.async_shutdown()
+
+
+@pytest.fixture
+def cognito_external(monkeypatch):
+    """Replace the external Cognito SDK login, not the integration's auth logic."""
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": time.time() + 3600}).encode()).decode()
+    def authenticate(user, password):
+        user.access_token = f"header.{payload}.signature"
+        user.refresh_token = "refresh"
+        user.id_token = user.access_token
+    monkeypatch.setattr("pycognito.Cognito.authenticate", authenticate)
+
+
+@pytest.fixture
+async def loaded_entry(hass, entry, vendor, hass_storage, enable_custom_integrations, cognito_external):
+    """Load real platforms from a prior successful discovery saved in HA storage."""
+    vendor.devices[0]["hub"] = {"localIp": "192.0.2.10", "tcpEnabled": True}
+    key = f"gemstone_lights.{entry.entry_id}"
+    hass_storage[key] = {"version": 1, "minor_version": 1, "key": key, "data": {
+        "devices": vendor.devices, "zones": vendor.zones,
+        "library": {"folder": [{"name": "Holiday", "data": {"name": "Holiday", "colors": [255, 65280], "animation": "chase"}}]},
+        "library_folders": {"folder": {"id": "folder", "folderName": "Christmas", "category": "holidays"}},
+    }}
+    if not await hass.config_entries.async_setup(entry.entry_id):
+        raise AssertionError("Integration setup failed")
+    await hass.async_block_till_done()
+    yield entry.runtime_data
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

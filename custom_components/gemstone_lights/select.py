@@ -19,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import GemstoneConfigEntry
 from .const import OPTION_NONE, OPTION_PICK_FOLDER
 from .coordinator import GemstoneCoordinator
-from .entity import GemstoneEntity
+from .entity import GemstoneEntity, async_add_discovered_entities
 
 
 async def async_setup_entry(
@@ -28,14 +28,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the design and pattern selects."""
-    coordinator = entry.runtime_data
-    entities: list[SelectEntity] = []
-    for device_id in coordinator.device_ids:
-        entities.append(GemstoneDesignSelect(coordinator, device_id))
-        entities.append(GemstonePatternSelect(coordinator, device_id))
-        entities.append(GemstoneLibraryFolderSelect(coordinator, device_id))
-        entities.append(GemstoneLibraryPatternSelect(coordinator, device_id))
-    async_add_entities(entities)
+    async_add_discovered_entities(entry, async_add_entities, lambda coordinator, device_id: [
+        GemstoneDesignSelect(coordinator, device_id), GemstonePatternSelect(coordinator, device_id),
+        GemstoneLibraryFolderSelect(coordinator, device_id), GemstoneLibraryPatternSelect(coordinator, device_id),
+    ])
 
 
 class GemstoneDesignSelect(GemstoneEntity, SelectEntity):

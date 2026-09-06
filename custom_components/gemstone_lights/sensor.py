@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import GemstoneConfigEntry
 from .color_util import unpack
 from .coordinator import GemstoneCoordinator
-from .entity import GemstoneEntity
+from .entity import GemstoneEntity, async_add_discovered_entities
 
 
 async def async_setup_entry(
@@ -20,11 +20,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up a "now playing" sensor per controller."""
-    coordinator = entry.runtime_data
-    async_add_entities(
-        GemstoneNowPlaying(coordinator, device_id)
-        for device_id in coordinator.device_ids
-    )
+    async_add_discovered_entities(entry, async_add_entities, lambda coordinator, device_id: [GemstoneNowPlaying(coordinator, device_id)])
 
 
 class GemstoneNowPlaying(GemstoneEntity, SensorEntity):

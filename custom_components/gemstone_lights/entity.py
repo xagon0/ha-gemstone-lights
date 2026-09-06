@@ -6,9 +6,30 @@ from typing import Any
 
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.core import callback
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import GemstoneCoordinator
+
+
+@callback
+def async_add_discovered_entities(entry, async_add_entities, factory) -> None:
+    """Add each platform's entities when controllers appear, with unload cleanup."""
+    coordinator = entry.runtime_data
+    known: set[str] = set()
+
+    @callback
+    def add_new() -> None:
+        entities = []
+        for device_id in coordinator.device_ids:
+            if device_id not in known:
+                known.add(device_id)
+                entities.extend(factory(coordinator, device_id))
+        if entities:
+            async_add_entities(entities)
+
+    add_new()
+    entry.async_on_unload(coordinator.async_add_listener(add_new))
 
 
 class GemstoneEntity(CoordinatorEntity[GemstoneCoordinator]):
