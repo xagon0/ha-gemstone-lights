@@ -61,6 +61,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         api: GemstoneApi,
         *,
         host_override: str | None = None,
+        host_device_id: str | None = None,
         prefer_local: bool = True,
         enable_local: bool = True,
         enable_library: bool = True,
@@ -75,6 +76,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.api = api
         self._host_override = host_override
+        self._host_device_id = host_device_id
         self._prefer_local = prefer_local
         self._enable_local = enable_local
         self._enable_library = enable_library
@@ -252,12 +254,16 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
 
         hub = info.get("hub") or {}
-        host = self._host_override or hub.get("localIp")
+        override = self._host_override if (
+            self._host_device_id == device_id
+            or (not self._host_device_id and self._device_ids == [device_id])
+        ) else None
+        host = override or hub.get("localIp")
         if not host:
             return None
 
         # Respect the app's own switch, unless an address was pinned by hand.
-        if not self._host_override and hub.get("tcpEnabled") is False:
+        if not override and hub.get("tcpEnabled") is False:
             if self._enable_local and device_id not in self._enable_attempted:
                 # The switch can be flipped from the cloud, so offer to do it
                 # rather than making the user go into the app.
