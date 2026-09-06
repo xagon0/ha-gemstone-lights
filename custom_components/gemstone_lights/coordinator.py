@@ -736,8 +736,14 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ranges: dict[str, tuple[int, int]] = {}
         for zone in self.zones(device_id):
             lights = zone.get("lights") or []
-            if zone.get("id") and len(lights) >= 3:
-                ranges[zone["id"]] = (int(lights[-2]), int(lights[-1]))
+            if not isinstance(lights, list) or not zone.get("id") or len(lights) < 3:
+                continue
+            try:
+                start, end = int(lights[-2]), int(lights[-1])
+            except (ValueError, TypeError):
+                continue
+            if 0 <= start <= end < 65536:
+                ranges[zone["id"]] = (start, end)
         return ranges
 
     def zone_states(self, device_id: str) -> dict[str, dict[str, Any]]:
@@ -784,10 +790,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 lights = entry.get("lights") or []
                 if not lights or entry.get("color") in (None, 0):
                     continue
-                covered = set(lights) if len(lights) != 3 else set(
-                    range(int(lights[-2]), int(lights[-1]) + 1)
-                )
-                if start in covered and end in covered:
+                covered = set(lights)
+                if all(pixel in covered for pixel in range(start, end + 1)):
                     result[zone_id] = {
                         "color": entry["color"],
                         "brightness": brightness,

@@ -48,3 +48,25 @@ async def test_turning_off_front_of_whole_run_preserves_back(coordinator, vendor
     assert sent == [{"zoneId": "back", "pattern": pattern}]
     assert back.is_on
     assert not front.is_on
+
+
+async def test_three_explicit_pixels_cover_the_entire_zone(coordinator, vendor):
+    # Given the local API reports exactly three explicit blue pixel indices.
+    vendor.devices[0]["hub"] = {"localIp": "192.0.2.10", "tcpEnabled": True}
+    vendor.states["hub"] = {"onState": True, "architectural": {"brightness": 80, "staticColors": [{"lights": [10, 11, 12], "color": 16711680}]}}
+    # When the actual local response is decoded and mapped onto the configured zone.
+    coordinator.data = await coordinator._async_update_data()
+    front = GemstoneZoneLight(coordinator, "hub", "front")
+    # Then pixel 10 is not mistaken for a range header, and the zone is lit blue at 80.
+    assert front.is_on
+    assert front.rgbw_color == (0, 0, 255, 0)
+    assert front.brightness == 80
+
+
+async def test_endpoints_alone_do_not_imply_uniform_zone_coverage(coordinator):
+    # Given a static layout colors the endpoints but leaves the middle pixel unassigned.
+    coordinator.data["devices"]["hub"]["state"] = {"onState": True, "architectural": {"staticColors": [{"lights": [10, 12], "color": 255}]}}
+    # When zone state is derived from the explicit pixels.
+    front = GemstoneZoneLight(coordinator, "hub", "front")
+    # Then it must not report the whole zone as a uniform red.
+    assert front.rgbw_color is None
