@@ -7,10 +7,10 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import GemstoneApi, GemstoneAuthError, GemstoneError
+from .api import GemstoneApi
+from homeassistant.helpers.storage import Store
 from .const import (
     CONF_EMAIL,
     CONF_ENABLE_LIBRARY,
@@ -43,13 +43,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> 
         entry.data[CONF_PASSWORD],
     )
 
-    try:
-        await api.async_login()
-    except GemstoneAuthError as err:
-        raise ConfigEntryAuthFailed(str(err)) from err
-    except GemstoneError as err:
-        raise ConfigEntryNotReady(str(err)) from err
-
     coordinator = GemstoneCoordinator(
         hass,
         entry,
@@ -75,3 +68,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) ->
 async def _async_reload_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> None:
     """Reload the entry when its options change."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> None:
+    """Remove persisted controller metadata when the account is removed."""
+    await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}").async_remove()

@@ -11,7 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from copy import deepcopy
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -19,12 +20,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .const import (
     CATALOG_REFRESH_INTERVAL,
-    CONF_ENABLE_LOCAL,
     LIBRARY_REFRESH_INTERVAL,
     LOCAL_RETRY_BACKOFF,
     LOCAL_WRITE_GAP,
@@ -73,6 +74,11 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._enable_local = enable_local
         self._enable_library = enable_library
         self._enable_attempted: set[str] = set()
+        self._known_devices: list[dict[str, Any]] = []
+        self._discovery_next: datetime | None = None
+        self._cloud_available = True
+        self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
+        self._saved_cache: dict[str, Any] | None = None
 
         # Gemstone's official pattern library, keyed by folder id.
         self._library_folders: dict[str, dict[str, Any]] = {}
@@ -94,6 +100,45 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Don't retry a controller we can't reach on every single poll.
         self._local_retry_after: dict[str, datetime] = {}
         self._settings: dict[str, dict[str, Any]] = {}
+
+    async def _async_setup(self) -> None:
+        """Restore discovery before attempting any cloud authentication."""
+        cached = await self._store.async_load()
+        if not isinstance(cached, dict):
+            return
+        devices = cached.get("devices", [])
+        if not isinstance(devices, list) or any(not isinstance(d, dict) or not d.get("id") for d in devices):
+            return
+        self._known_devices = devices
+        self._device_ids = [d["id"] for d in devices]
+        for key in ("zones", "designs", "library", "library_folders", "speeds", "selected_folder"):
+            if isinstance(cached.get(key), dict):
+                setattr(self, f"_{key}", cached[key])
+        if isinstance(cached.get("patterns"), list):
+            self._patterns = cached["patterns"]
+        if devices:
+            # The first refresh can complete locally, even if Cognito is down.
+            self._discovery_next = dt_util.utcnow() + DEFAULT_SCAN_INTERVAL
+            self._catalog_refreshed = dt_util.utcnow()
+            self._library_refreshed = dt_util.utcnow()
+
+    async def _async_save_cache(self) -> None:
+        """Persist discovery and catalogs, never passwords or session tokens."""
+        devices = []
+        for device in self._known_devices:
+            info = {k: device[k] for k in ("id", "name", "online", "firmware") if k in device}
+            hub = device.get("hub") or {}
+            info["hub"] = {k: hub[k] for k in ("localIp", "tcpEnabled", "pixelCount", "outputNames", "rgbwSequence") if k in hub}
+            devices.append(info)
+        cached = deepcopy({
+            "devices": devices, "zones": self._zones, "designs": self._designs,
+            "patterns": self._patterns, "library": self._library,
+            "library_folders": self._library_folders, "speeds": self._speeds,
+            "selected_folder": self._selected_folder,
+        })
+        if cached != self._saved_cache:
+            await self._store.async_save(cached)
+            self._saved_cache = cached
 
     # -- basics -------------------------------------------------------------
 
@@ -293,14 +338,28 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch controller state (and the catalog when due)."""
         try:
-            devices = await self._async_discover()
+            now = dt_util.utcnow()
+            if self._discovery_next is None or now >= self._discovery_next:
+                self._discovery_next = now + timedelta(minutes=1)
+                try:
+                    discovered = await self._async_discover()
+                except GemstoneError:
+                    self._cloud_available = False
+                    if not self._known_devices:
+                        raise
+                    _LOGGER.debug("Cloud discovery unavailable; using cached controllers")
+                else:
+                    self._known_devices = list({d["id"]: d for d in discovered if d.get("id")}.values())
+                    self._cloud_available = True
+                    self._discovery_next = now + timedelta(minutes=5)
+            devices = self._known_devices
             self._device_ids = [d["id"] for d in devices if d.get("id")]
 
             due = (
                 self._catalog_refreshed is None
                 or dt_util.utcnow() - self._catalog_refreshed > CATALOG_REFRESH_INTERVAL
             )
-            if due:
+            if due and self._cloud_available:
                 await self._async_refresh_catalog(self._device_ids)
 
             library_due = self._enable_library and (
@@ -308,7 +367,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 or dt_util.utcnow() - self._library_refreshed
                 > LIBRARY_REFRESH_INTERVAL
             )
-            if library_due:
+            if library_due and self._cloud_available:
                 await self._async_refresh_library()
 
             result: dict[str, Any] = {DATA_DEVICES: {}}
@@ -335,6 +394,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             result[DATA_DESIGNS] = self._designs
             result[DATA_PATTERNS] = self._patterns
+            await self._async_save_cache()
             return result
 
         except GemstoneAuthError as err:
