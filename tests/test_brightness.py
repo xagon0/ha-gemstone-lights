@@ -1,5 +1,7 @@
 """Cloud brightness must operate on logical RGBW, not already-dimmed channels."""
 
+import asyncio
+
 from custom_components.gemstone_lights.light import GemstoneLight, GemstoneZoneLight
 
 
@@ -8,7 +10,7 @@ async def test_dim_then_brighten_restores_original_cloud_color(coordinator, vend
     light = GemstoneLight(coordinator, "hub")
     # When it is dimmed, its physical echo is polled, and then brightness is restored.
     await light.async_turn_on(brightness=80)
-    coordinator._pending_states.clear()
+    await asyncio.sleep(5.05)  # Let the real command-settling window expire.
     coordinator.data = await coordinator._async_update_data()
     await light.async_turn_on(brightness=255)
     # Then the first cloud write is scaled red and the second restores the full original channel.
@@ -65,7 +67,7 @@ async def test_external_color_change_replaces_remembered_brightness(
 ):
     # Given HA previously dimmed a red light.
     await coordinator.async_play_color("hub", 255, 80)
-    coordinator._pending_states.clear()
+    await asyncio.sleep(5.05)  # Let the real command-settling window expire.
     vendor.states["hub"] = {"onState": True, "color": 65280}
     # When a later poll observes a different green color set outside HA.
     coordinator.data = await coordinator._async_update_data()
@@ -99,7 +101,7 @@ async def test_power_change_retains_local_zone_brightness_interpretation(
     )
     # When power is switched off and the controller's retained pixel layout is read back.
     await coordinator.async_set_power("hub", False)
-    coordinator._pending_states.clear()
+    await asyncio.sleep(5.05)  # Let the real command-settling window expire.
     coordinator.data = await coordinator._async_update_data()
     front = GemstoneZoneLight(coordinator, "hub", "front")
     # Then the zone is off while its logical red and brightness remain available for restoration.

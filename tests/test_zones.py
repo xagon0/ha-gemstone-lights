@@ -1,5 +1,6 @@
 """Zone editing must preserve content outside the fields being changed."""
 
+import asyncio
 from copy import deepcopy
 
 import pytest
@@ -138,7 +139,7 @@ async def test_local_zones_keep_independent_brightness_after_echo(coordinator, v
     await coordinator.async_set_zone(
         "hub", "back", {"color": 4278190080, "brightness": 200, "animation": "Solid"}
     )
-    coordinator._pending_states.clear()
+    await asyncio.sleep(5.05)  # Let the real command-settling window expire.
     coordinator.data = await coordinator._async_update_data()
     # Then physical channels encode independent brightness and logical zone colors remain full scale.
     sent = vendor.writes[-1][3]["architectural"]

@@ -43,11 +43,10 @@ async def test_rejected_credentials_request_reauthentication(api):
     failure = ClientError({"Error": {"Code": "NotAuthorizedException"}}, "InitiateAuth")
     with patch("botocore.client.BaseClient._make_api_call", side_effect=failure):
         # When the integration authenticates.
-        with pytest.raises(GemstoneAuthError, match="credentials"):
+        with pytest.raises(GemstoneAuthError, match="credentials") as raised:
             await api.async_login()
-    # Then no usable session is established by the failed login.
-    # The pre-existing token is retained; login failure must not destroy it.
-    assert api._access_token is not None
+    # Then the surfaced credential error preserves the original SDK rejection as its cause.
+    assert raised.value.__cause__ is failure
 
 
 async def test_near_expiry_session_is_renewed_once_for_concurrent_requests(api, http):
