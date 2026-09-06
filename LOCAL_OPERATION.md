@@ -156,6 +156,11 @@ on the controller and cannot run while HA is shut down.
 
 ## Evidence and next protocol investigations
 
+The [Android app investigation](APK_PROTOCOL_RESEARCH.md) records newer static
+evidence for local music transport and Bluetooth timer operations, the Shorebird
+decoder limitation, and the captures required to establish their wire formats.
+These findings do not change the implemented capability boundaries above.
+
 Direct LAN tests sent new design IDs with an existing lower zone running a green
 chase and an existing upper zone set blue. Hub2 returned the nested animation,
 palette and brightness fields intact. Two doorbell camera frames showed the
