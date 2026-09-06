@@ -87,11 +87,14 @@ async def test_catalog_export_import_preserves_design_zone_references(
     await fresh.async_shutdown()
 
 
-async def test_invalid_import_is_atomic(coordinator):
+@pytest.mark.parametrize(
+    "invalid", [{"colors": [-1]}, {"colors": [255], "backgroundColor": -1}]
+)
+async def test_invalid_import_is_atomic(coordinator, invalid):
     # Given existing local content and an import with a valid first item but invalid second item.
     await coordinator.catalog.save("hub", "pattern", "Keep", {"colors": [255]})
     before = deepcopy(coordinator.catalog.data)
-    # When the import contains an out-of-range packed color.
+    # When the import contains an out-of-range palette or background color.
     with pytest.raises(HomeAssistantError, match="Invalid catalog"):
         await coordinator.catalog.import_data(
             "hub",
@@ -99,7 +102,7 @@ async def test_invalid_import_is_atomic(coordinator):
                 "version": 1,
                 "patterns": [
                     {"name": "New", "data": {"colors": [65280]}},
-                    {"name": "Broken", "data": {"colors": [-1]}},
+                    {"name": "Broken", "data": invalid},
                 ],
             },
         )
