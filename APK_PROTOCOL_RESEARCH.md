@@ -5,18 +5,24 @@ Hub2 firmware 1.1.5. This report supplements [Local operation](LOCAL_OPERATION.m
 
 ## Result
 
-Music sync is a strong candidate for an independent local implementation. The
-Hub2 app contains a UDP client, microphone recording, FFT processing, music
-presets, and firmware-dependent UDP configuration. The vendor explicitly requires
-the phone and controller to share Wi-Fi. **The wire format, destination port,
-initialization sequence, and timing have not been recovered or tested.** This is
-evidence of a promising implementation path, not a working music integration.
+Live captures recovered the Hub2 app's music transport: **UDP port 1902, eight
+unsigned audio levels encoded as lowercase hexadecimal and then Base64, about
+16 packets per second**. Synthetic audio supplied to the owner's existing Android
+emulator changes these levels. This establishes an app-side local transport, not
+a working independent music integration.
+
+Both the vendor app and an independent sender failed to produce visible music
+output on the tested controller. A solid-red control command was clearly visible
+in the same camera. Connected UDP probes returned `ECONNREFUSED` on port 1902,
+including while the controller reported the music animation active. The receiving
+port, firmware compatibility and possible initialization requirement need to be
+resolved before implementing playback in HA. Cloud-free initialization and
+controller WAN isolation remain unverified.
 
 Bluetooth timer and controller-state operations are also present. Native zone
 creation, playlists, provisioning, settings writes, and firmware updates remain
-unverified. No new commands were sent to the controller during this investigation.
-Home Assistant was reachable and reported the whole-controller light off with
-local control enabled.
+unverified. All live lighting tests restored and read back the exact original
+controller state. No production integration code changed in this research step.
 
 ## App identity and reproducibility
 
@@ -25,9 +31,11 @@ The correct Hub2 Android package is `com.gemstone.lights`, linked from its
 The installed Mac application is the older `com.gemstone.gemstonehub` / Hub1
 application and is not a suitable Hub2 protocol reference.
 
-Android platform tools and an SDK were found on this Mac. ADB reported no connected
-devices, and the local AVD directory contained no configured emulator. This does
-not establish whether an emulator exists on another computer or inside a VM.
+The emulator was found on the owner's other Mac through its existing SSH setup.
+Its AVD is named `gem`, stored in `$HOME/.android/avd/gem.avd`, using Android 11
+(API 30), Google APIs, x86_64. The SDK is under `$HOME/Library/Android/sdk`.
+The installed `com.gemstone.lights` reports version 0.6.64 / build 664 and was
+already signed in. Its active Shorebird patch version has not been established.
 
 Public APKPure downloads supplied these signed builds:
 
@@ -91,7 +99,7 @@ string literals; raw `strings` output must not be copied blindly into requests.
 
 | Capability | Concrete evidence | Remaining work |
 | --- | --- | --- |
-| Music sync | `services/udp_client.dart`, `MusicVisualizerNotifier`, `_calculateFFT`, `_createLogarithmicFrequencyBands`, `frequencyBins`, `clampMagnitude`, `musicModeUdpPortChange`, microphone recording plugin, `music_pulse` / `music_gradient_bar` presets | Capture start, steady audio, silence, preset switch, and stop. Recover UDP endpoint, framing, fields, cadence, and firmware gate. Verify physical response and restoration. |
+| Music sync | Live UDP 1902 captures; eight Base64/hex levels; synthetic-input response. Static FFT and `musicModeUdpPortChange` identifiers. | Resolve port refusal on tested firmware, recover initialization and frequency-band mapping, then verify physical response with WAN blocked. See the live results below. |
 | Native timers | `BluetoothReadTimerDataCmdResponse`, `readNumberOfTimers`, `readTimerData`, `setTimerShadowState`, `setTimerEnabledShadowState`, and cloud `/timer/create`, `/timer/update`, `/timer/delete` strings | Capture BLE reads and one reversible timer edit. Determine whether native timer writes are available over LAN or BLE, and how clock/DST and enabled state are encoded. |
 | Native zones | `zone_service.dart`, `zone_notifier.dart`, `/deviceControl/zone/list`, `/save`, `/delete`, `/reset` strings | Capture creating and deleting a temporary zone. Determine the actual transport and controller-side zone-definition format. Existing v1.6.0 arbitrary-zone limitations still apply. |
 | Native playlists | `playlist_service.dart`, `/deviceControl/playlist/list`, `/save`, `/delete`, `/deviceControl/play/playlist` strings | Separate app/cloud catalog CRUD from controller playback/upload. Capture a short two-step playlist and its stop operation. |
@@ -107,19 +115,103 @@ support. The [Bluetooth documentation](https://www.gemstonelights.com/support/co
 confirms local Bluetooth control and limits it to one connected client at a time;
 firmware updates require Wi-Fi. Neither document specifies wire protocols.
 
+## Live music captures and replay
+
+The emulator's built-in network capture recorded traffic at its virtual network
+interface. Its host microphone was explicitly disabled and checked through the
+emulator API. Synthetic mono PCM, 44.1 kHz signed 16-bit audio, was injected through
+the authenticated emulator gRPC interface. No room audio was recorded. The app
+received a temporary microphone permission so it could read this synthetic input.
+
+Three stopped captures contained 1,242, 772 and 746 outgoing controller music
+datagrams respectively. The first lasted approximately 75.5 seconds, with a median
+inter-packet interval of 60.889 ms. These are observed timings, not a proven
+firmware requirement. The destination was the controller's LAN address, UDP 1902;
+the app used an ephemeral source port. No controller UDP acknowledgment was seen.
+
+Each observed UDP payload was 24 ASCII bytes. Base64 decoding yields 16 lowercase
+hexadecimal characters; interpreting each pair gives eight unsigned byte values.
+There was no additional header, sequence number or timestamp in these payloads.
+Sanitized examples from the captures:
+
+| UDP payload (ASCII) | Base64-decoded text | Eight levels |
+| --- | --- | --- |
+| `MDAwMDAwMDAwMDAwMDAwMA==` | `0000000000000000` | 0, 0, 0, 0, 0, 0, 0, 0 |
+| `MDkwOTAwMDAwMDAwMDAwMA==` | `0909000000000000` | 9, 9, 0, 0, 0, 0, 0, 0 |
+| `ZmZmZmZmZmZmZmZmYTI1NQ==` | `ffffffffffffa255` | 255, 255, 255, 255, 255, 255, 162, 85 |
+
+Synthetic tones from 80 Hz through 10 kHz changed both the app's eight displayed
+bars and the transmitted values. Silence usually produced zeros, with small
+residual values also observed. Exact FFT band boundaries, scaling, smoothing and
+silence behavior have not been recovered. The tone experiment does not establish
+a frequency-to-index mapping or calibrated sound level.
+
+Selecting Music Gradient 1 in the app produced this controller-reported pattern:
+
+```json
+{
+  "name": "Music Gradient 1",
+  "animation": "music_gradient_bar",
+  "id": "90000000-0000-0000-0000-000000000001",
+  "backgroundColor": 0,
+  "brightness": 255,
+  "speed": 255,
+  "direction": 0,
+  "colors": [255, 65280]
+}
+```
+
+These `90000000-...` identifiers are preset IDs, not evidence of Bluetooth GATT
+UUIDs. No direct TCP request to the controller was observed during the captured
+app selection. Cloud traffic was encrypted; the initial selection command has
+not been decoded. A cloud-mediated selection is a hypothesis, not an established
+requirement.
+
+Independent replay posted that pattern to the existing local
+`/device-control/play` endpoint with `onState: true`, cleared the inactive modes,
+and sent the captured framing to UDP 1902 at approximately the observed cadence.
+Tests used all-zero, all-255 and single-band vectors, both a generated pattern ID
+and the exact vendor ID, and brightness values 64 and 255. The controller echoed
+the music animation, but camera frames showed no visible music output. A normal
+solid-red command at brightness 128 visibly illuminated the same roofline.
+
+A separate vendor-app test injected synthetic tones while capturing camera
+frames and network traffic. The app displayed Connected, a playing music preset
+and changing audio bars. A camera frame taken during nonzero outgoing music
+levels also showed no visible roofline output. This rules out treating the app's
+Connected label or a matching HTTP state report as proof of working music.
+
+Finally, a connected UDP socket sent the observed silence payload to port 1902.
+All three probes while the lights were off and all three while the controller
+reported `music_gradient_bar` returned `ConnectionRefusedError` / errno 61
+(`ECONNREFUSED`). This is consistent with a closed or explicitly rejected UDP
+endpoint; the ICMP origin was not independently captured. The emulator host uses
+a routed network path, while the independent sender is on the controller's local
+subnet. HTTP reads and ordinary light commands work from both hosts.
+
+The controller reports firmware 1.1.5, SPI 1.2.1 and Wi-Fi 3.3.9. Its local
+settings report `tcpEnabled: true` but no music/UDP port field. The static
+`musicModeUdpPortChange` identifier is a useful compatibility lead; its version
+threshold and alternate port have not been recovered. No port scan, guessed
+alternate-port playback, controller reset or firmware update was performed.
+
+All senders and captures were stopped, the app was force-stopped, and the original
+light state was restored and verified after each test sequence. Raw captures,
+camera frames, app artifacts and emulator credentials remain outside the repo.
+
 ## Next capture session
 
 Use the running **Hub2** app, preferably in the owner's Android emulator. A
 connected Android phone is also useful. Record package version, active Shorebird
 patch, controller firmware, and whether the app is using Wi-Fi or Bluetooth.
 
-1. Capture only traffic involving the test controller. With an emulator on the
-   capture host this avoids relying on a switched LAN to expose phone unicast
-   traffic. UDP music traffic does not need HTTPS decryption.
-2. Save fresh controller state; start a music preset at low brightness, supply a
-   controlled tone and silence, switch preset, stop, then restore and read back
-   the original state. Correlate packet timestamps with each action and the
-   doorbell view. An HTTP success/state echo alone does not verify LED behavior.
+1. Establish whether the owner's phone currently produces physical music output
+   on the controller's Wi-Fi. Compare its destination port, app/patch version,
+   firmware view and initialization with the emulator. Resolve the observed
+   port refusal before changing the audio encoder or implementing an HA sender.
+2. Recover the port-selection gate and initial command, then repeat a bounded
+   tone/silence/preset-switch test with fresh saved state, packet timestamps and
+   physical observation. Always restore and read back the original state.
 3. Repeat with the controller's Internet access blocked while its LAN remains
    reachable. Separately test whether the app can enter music mode without cloud
    access; local audio transport does not prove cloud-free initialization.

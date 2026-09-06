@@ -26,7 +26,7 @@ from unresolved controller features.
 | Existing controller timers | Vendor documents offline operation | Native timer read/create/edit/delete endpoints remain unverified. HA blueprints do not edit these timers. |
 | Holiday/seasonal automation | HA local calendars, date conditions, scripts and locally stored patterns | Vendor Autopilot subscriptions and automatic new-content delivery are not replicated. |
 | Groups and scenes | HA light groups/scenes and multi-entity action targets | Commands are independent; no frame-accurate multi-controller synchronization. |
-| Music sync | Unresolved | Vendor describes phone microphone input. No verified audio/beat transport or local capture engine in this integration. |
+| Music sync | Unresolved | App captures establish eight audio levels over UDP 1902. Tested controller rejects that port; physical playback and cloud-free initialization remain unverified. No music sender or audio capture engine is implemented. |
 | Firmware, output counts, color order | Read locally from `hub-settings` | Writing output configuration, network settings, clock/location or firmware is not implemented. |
 | Account-free HA setup | Manual controller address | Existing provisioned Hub2 only. Reserve its DHCP address; this is not Bluetooth/Wi-Fi provisioning. |
 | Bluetooth / factory-new provisioning | Unresolved in this integration | Vendor app has local Bluetooth control; its pairing/GATT protocol has not been implemented here. |
@@ -156,9 +156,10 @@ on the controller and cannot run while HA is shut down.
 
 ## Evidence and next protocol investigations
 
-The [Android app investigation](APK_PROTOCOL_RESEARCH.md) records newer static
-evidence for local music transport and Bluetooth timer operations, the Shorebird
-decoder limitation, and the captures required to establish their wire formats.
+The [Android app investigation](APK_PROTOCOL_RESEARCH.md) records captured music
+packet framing and timing, unsuccessful physical playback with both the vendor
+app and an independent sender, the UDP port refusal, static Bluetooth timer
+evidence, and the Shorebird decoder limitation.
 These findings do not change the implemented capability boundaries above.
 
 Direct LAN tests sent new design IDs with an existing lower zone running a green
@@ -184,8 +185,9 @@ while creating a zone/timer/playlist and changing settings; identify the officia
 Bluetooth GATT services and framing; determine whether management uses local HTTP,
 Bluetooth or cloud-to-device messages; replay only verified reversible requests.
 Firmware work additionally needs a legitimate firmware package, a documented
-update handshake and a recovery path. Music sync needs capture of the phone's
-beat/event stream and timing behavior. None of these gaps is solved by repeatedly
+update handshake and a recovery path. Music sync needs its receiving port and
+initialization resolved, followed by verified physical playback with WAN blocked.
+None of these gaps is solved by repeatedly
 posting unknown JSON fields to the playback endpoint.
 
 Automated tests run the actual integration logic with external HTTP substituted,
