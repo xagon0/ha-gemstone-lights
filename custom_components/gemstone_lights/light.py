@@ -305,10 +305,17 @@ class GemstoneZoneLight(_GemstoneBaseLight):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Apply a colour and effect to this zone only."""
         rgbw, brightness, effect = self._resolve(kwargs)
+        spec = {}
+        if ATTR_RGBW_COLOR in kwargs or self._zone is None:
+            spec["color"] = pack(*rgbw)
+        if ATTR_BRIGHTNESS in kwargs or self._zone is None:
+            spec["brightness"] = brightness
+        if ATTR_EFFECT in kwargs or self._zone is None:
+            spec["animation"] = effect
         await self.coordinator.async_set_zone(
             self._device_id,
             self._zone_id,
-            {"color": pack(*rgbw), "brightness": brightness, "animation": effect},
+            spec,
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:

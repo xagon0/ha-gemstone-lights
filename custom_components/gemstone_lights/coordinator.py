@@ -19,7 +19,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
@@ -786,79 +786,83 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     break
         return result
 
+    def _zone_entries(self, device_id: str) -> dict[str, dict[str, Any]]:
+        """Keep complete vendor patterns and entry metadata for neighboring zones."""
+        design = self.device_state(device_id).get("architectural") or {}
+        if "zonePatterns" in design:
+            return {
+                entry["zoneId"]: deepcopy(entry)
+                for entry in design["zonePatterns"]
+                if entry.get("zoneId") and isinstance(entry.get("pattern"), dict)
+            }
+        return {
+            zone_id: {
+                "zoneId": zone_id,
+                "pattern": self.build_pattern(
+                    device_id, [spec["color"]], spec["animation"],
+                    brightness=spec["brightness"],
+                ),
+            }
+            for zone_id, spec in self.zone_states(device_id).items()
+        }
+
+    async def _async_play_zones(
+        self, device_id: str, entries: dict[str, dict[str, Any]]
+    ) -> None:
+        """Send the full zone layout, translating only supported solid layouts."""
+        if not entries:
+            await self.async_set_power(device_id, False)
+            return
+        design = {
+            "id": str(uuid.uuid4()), "name": "Home Assistant Zones",
+            "brightness": 255, "preview": False,
+            "zonePatterns": list(entries.values()),
+        }
+        ranges = self.zone_ranges(device_id)
+        patterns = {zid: entry["pattern"] for zid, entry in entries.items()}
+        can_translate = all(
+            zid in ranges and len(pattern.get("colors") or []) == 1
+            and pattern.get("animation") in (EFFECT_SOLID, "motionless")
+            for zid, pattern in patterns.items()
+        )
+        client = self._local.get(device_id)
+        local_design = None
+        if can_translate:
+            local_design = {
+                "id": design["id"], "name": design["name"], "preview": False,
+                "brightness": max(p.get("brightness", 255) for p in patterns.values()),
+                "staticColors": [
+                    {"lights": list(range(ranges[zid][0], ranges[zid][1] + 1)),
+                     "color": pattern["colors"][0]}
+                    for zid, pattern in patterns.items()
+                ],
+            }
+        await self._async_command(
+            device_id,
+            (lambda: client.async_play({"onState": True, "architectural": local_design}))
+            if client and local_design is not None else None,
+            lambda: self.api.async_play_design(device_id, design),
+            {"onState": True, "architectural": design},
+        )
+
     @serialized
     async def async_set_zone(
         self, device_id: str, zone_id: str, spec: dict[str, Any] | None
     ) -> None:
-        """Set or clear one zone, preserving what the other zones show.
-
-        Every write replaces the whole design, so the full picture is sent
-        each time. All-solid designs go out locally as ``staticColors``; if any
-        zone wants an animation the design must go through the cloud, which is
-        the only side that understands ``zonePatterns``.
-        """
-        desired = self.zone_states(device_id)
+        """Apply only the requested fields, preserving every other zone's content."""
+        if zone_id not in {z.get("id") for z in self.zones(device_id)}:
+            raise HomeAssistantError("This zone no longer exists")
+        desired = self._zone_entries(device_id)
         if spec is None:
             desired.pop(zone_id, None)
         else:
-            desired[zone_id] = spec
-
-        if not desired:
-            await self.async_set_power(device_id, False)
-            return
-
-        ranges = self.zone_ranges(device_id)
-        all_solid = all(
-            entry["animation"] in (EFFECT_SOLID, "motionless")
-            for entry in desired.values()
-        )
-        client = self._local.get(device_id)
-
-        if all_solid and client and self.is_local(device_id) and ranges:
-            static = [
-                {
-                    "lights": list(range(*(ranges[zid][0], ranges[zid][1] + 1))),
-                    "color": entry["color"],
-                }
-                for zid, entry in desired.items()
-                if zid in ranges
-            ]
-            design = {
-                "id": str(uuid.uuid4()),
-                "name": "Home Assistant Zones",
-                "brightness": max(e["brightness"] for e in desired.values()),
-                "preview": False,
-                "staticColors": static,
-            }
-            try:
-                await self.async_play_design(device_id, design)
-                return
-            except GemstoneLocalError as err:
-                _LOGGER.warning(
-                    "Gemstone %s: local zone write failed (%s), using cloud",
-                    device_id,
-                    err,
-                )
-
-        # Animated zones, or no local path: the cloud expands zonePatterns.
-        zone_patterns = [
-            {
-                "zoneId": zid,
-                "pattern": self.build_pattern(
-                    device_id,
-                    [entry["color"]],
-                    entry["animation"],
-                    brightness=entry["brightness"],
-                ),
-            }
-            for zid, entry in desired.items()
-        ]
-        await self.async_play_design(
-            device_id,
-            {
-                "id": str(uuid.uuid4()),
-                "name": "Home Assistant Zones",
-                "brightness": 255,
-                "zonePatterns": zone_patterns,
-            },
-        )
+            entry = desired.get(zone_id, {"zoneId": zone_id, "pattern": self.build_pattern(device_id, [0xFFFFFF], EFFECT_SOLID)})
+            pattern = entry["pattern"]
+            if "color" in spec:
+                pattern["colors"] = [spec["color"]]
+            if "brightness" in spec:
+                pattern["brightness"] = spec["brightness"]
+            if "animation" in spec:
+                pattern["animation"] = "motionless" if spec["animation"] == EFFECT_SOLID else spec["animation"]
+            desired[zone_id] = entry
+        await self._async_play_zones(device_id, desired)
