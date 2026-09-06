@@ -24,7 +24,22 @@ async def test_zone_pattern_design_uses_cloud_even_with_local_available(
             "cloud",
             "hub",
             "/deviceControl/play/architectural",
-            {"architectural": {**design, "preview": False}},
+            {
+                "architectural": {
+                    **design,
+                    "preview": False,
+                    "zonePatterns": [
+                        {
+                            "zoneId": "front",
+                            "pattern": {
+                                "animation": "chase",
+                                "colors": [255, 65280],
+                                "brightness": 255,
+                            },
+                        }
+                    ],
+                }
+            },
         )
     ]
 

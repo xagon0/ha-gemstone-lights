@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.5.1 — 2026-09-06
+
+- Correct independent brightness for animated zones sent through the cloud. Live
+  testing on Hub2 firmware 1.1.5 found that cloud playback resets each nested
+  pattern's brightness to 255. Encode that dimming in every RGBW palette and
+  background color while retaining the logical color and level in Home Assistant.
+- Preserve those logical zone values through normalized controller echoes, local
+  write failures, cloud power changes, and repeated dim/brighten operations.
+- Schedule the command follow-up poll after the five-second optimistic-state
+  window so accepted but unapplied commands are detected promptly.
+- Add hardware-derived HTTP response normalization and four behavior regressions.
+  The cloud brightness and refresh regressions were first verified to fail against
+  the previous behavior.
+
+Live validation of 1.5.0 confirmed power, red/white output, dim/brighten, simultaneous
+zone edits, neighboring-zone preservation, saved designs and patterns, and zone
+state persistence through an integration reload. It also exposed the cloud-zone
+brightness issue corrected here. A full restart with the internet disconnected
+remains covered by automated tests rather than a live outage drill.
+
 ## 1.5.0 — 2026-09-06
 
 Requires Home Assistant **2026.9.1 or later**; the supported baseline is raised

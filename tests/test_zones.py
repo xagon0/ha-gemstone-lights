@@ -34,11 +34,19 @@ async def test_editing_front_preserves_complete_back_pattern(coordinator, vendor
     await coordinator.async_set_zone(
         "hub", "front", {"color": 16711680, "brightness": 200, "animation": "Solid"}
     )
-    # Then the full back entry survives the cloud write and the original input is not mutated.
+    # Then its palette is physically dimmed without losing metadata or changing the logical input.
     sent = vendor.writes[-1][3]["architectural"]["zonePatterns"]
-    assert next(e for e in sent if e["zoneId"] == "back") == original
+    assert next(e for e in sent if e["zoneId"] == "back") == {
+        **original,
+        "pattern": {
+            **original["pattern"],
+            "colors": [80, 20480],
+            "backgroundColor": 1342177280,
+            "brightness": 255,
+        },
+    }
     assert next(e for e in sent if e["zoneId"] == "front")["pattern"]["colors"] == [
-        16711680
+        13107200
     ]
     assert back == original
 
@@ -60,9 +68,12 @@ async def test_dimming_a_zone_keeps_its_palette_and_animation_settings(
     light = GemstoneZoneLight(coordinator, "hub", "front")
     # When only its brightness changes through the light entity.
     await light.async_turn_on(brightness=80)
-    # Then brightness is the only field of the existing pattern that changes.
+    # Then the emitted palette encodes dimming and the logical palette and animation survive.
     sent = vendor.writes[-1][3]["architectural"]["zonePatterns"][0]["pattern"]
-    assert sent == {**pattern, "brightness": 80}
+    assert sent == {**pattern, "colors": [80, 20480], "brightness": 255}
+    assert coordinator.device_state("hub")["architectural"]["zonePatterns"][0][
+        "pattern"
+    ] == {**pattern, "brightness": 80}
 
 
 async def test_turning_off_front_of_whole_run_preserves_back(coordinator, vendor):
@@ -80,7 +91,12 @@ async def test_turning_off_front_of_whole_run_preserves_back(coordinator, vendor
     await front.async_turn_off()
     # Then the controller stays on, the back keeps the full pattern, and the front is off.
     sent = vendor.writes[-1][3]["architectural"]["zonePatterns"]
-    assert sent == [{"zoneId": "back", "pattern": pattern}]
+    assert sent == [
+        {
+            "zoneId": "back",
+            "pattern": {**pattern, "colors": [200, 51200], "brightness": 255},
+        }
+    ]
     assert back.is_on
     assert not front.is_on
 

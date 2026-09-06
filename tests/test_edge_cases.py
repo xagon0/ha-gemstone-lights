@@ -65,8 +65,8 @@ async def test_edge_case_b_simultaneous_zone_edits(coordinator, vendor):
         for entry in vendor.writes[-1][3]["architectural"]["zonePatterns"]
     }
     assert set(patterns) == {"front", "back"}
-    assert patterns["front"]["colors"] == [255]
-    assert patterns["front"]["brightness"] == 80
-    assert patterns["back"]["colors"] == [65280]
-    assert patterns["back"]["brightness"] == 200
+    assert patterns["front"]["colors"] == [80]
+    assert patterns["front"]["brightness"] == 255
+    assert patterns["back"]["colors"] == [51200]
+    assert patterns["back"]["brightness"] == 255
     assert patterns["back"]["animation"] == "chase"
