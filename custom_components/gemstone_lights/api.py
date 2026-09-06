@@ -22,6 +22,7 @@ import time
 from typing import Any
 
 import aiohttp
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from homeassistant.core import HomeAssistant
 
@@ -95,6 +96,7 @@ class GemstoneApi:
             COGNITO_CLIENT_ID,
             user_pool_region=AWS_REGION,
             username=self._email,
+            botocore_config=Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 1}),
         )
         user.authenticate(password=self._password)
         return {
@@ -114,8 +116,9 @@ class GemstoneApi:
             id_token=self._id_token,
             access_token=self._access_token,
             refresh_token=self._refresh_token,
+            botocore_config=Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 1}),
         )
-        user.check_token()
+        user.renew_access_token()
         return {
             "access_token": user.access_token,
             "refresh_token": user.refresh_token or self._refresh_token,
@@ -145,9 +148,11 @@ class GemstoneApi:
         self._store(tokens)
         _LOGGER.debug("Gemstone login succeeded for %s", self._email)
 
-    async def _async_ensure_token(self) -> None:
+    async def _async_ensure_token(self, rejected_token: str | None = None) -> None:
         """Make sure a usable access token is available."""
         async with self._lock:
+            if rejected_token is not None and self._access_token == rejected_token:
+                self._expires_at = 0.0
             if self._access_token and time.time() < self._expires_at - _TOKEN_LEEWAY:
                 return
 
@@ -156,8 +161,12 @@ class GemstoneApi:
                     tokens = await self._hass.async_add_executor_job(self._refresh_sync)
                     self._store(tokens)
                     return
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.debug("Token refresh failed, re-authenticating: %s", err)
+                except ClientError as err:
+                    if err.response.get("Error", {}).get("Code") != "NotAuthorizedException":
+                        raise GemstoneApiError("Could not renew the Gemstone session") from err
+                    _LOGGER.debug("Refresh token expired; signing in again")
+                except Exception as err:
+                    raise GemstoneApiError("Could not renew the Gemstone session") from err
 
             await self.async_login()
 
@@ -175,7 +184,8 @@ class GemstoneApi:
         """Send a request and return the decoded ``data`` payload."""
         await self._async_ensure_token()
 
-        headers = {**APP_HEADERS, "authorization": f"Bearer {self._access_token}"}
+        access_token = self._access_token
+        headers = {**APP_HEADERS, "authorization": f"Bearer {access_token}"}
         url = f"{API_BASE_URL}{path}"
 
         try:
@@ -192,11 +202,13 @@ class GemstoneApi:
                 if resp.status in (401, 403) and _retry:
                     # Token may have been revoked; force a fresh login once.
                     _LOGGER.debug("Auth rejected on %s, retrying with new token", path)
-                    self._access_token = None
-                    self._expires_at = 0.0
+                    await self._async_ensure_token(rejected_token=access_token)
                     return await self._request(
                         method, path, params=params, json_body=json_body, _retry=False
                     )
+
+                if resp.status in (401, 403):
+                    raise GemstoneAuthError("Gemstone rejected the renewed session")
 
                 if resp.status >= 400:
                     raise GemstoneApiError(
