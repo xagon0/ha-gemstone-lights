@@ -33,6 +33,9 @@ class Vendor:
 
     def cloud(self, url, **kwargs):
         path = url.path.removeprefix("/prod")
+        query_path = f"{path}?{url.query_string}"
+        if query_path in self.failures:
+            return CallbackResult(status=self.failures[query_path])
         if self.cloud_offline or path in self.failures:
             return CallbackResult(status=self.failures.get(path, 503))
         device = url.query.get("deviceOrGroupId", url.query.get("deviceId", "hub"))

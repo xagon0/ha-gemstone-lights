@@ -98,6 +98,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._patterns: list[dict[str, Any]] = []
         self._zones: dict[str, list[dict[str, Any]]] = {}
         self._catalog_refreshed: datetime | None = None
+        self._catalog_retry_after: datetime | None = None
+        self._library_retry_after: datetime | None = None
         self._speeds: dict[str, int] = {}
 
         # The controller drops writes that arrive too close together.
@@ -326,13 +328,18 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return devices
 
     async def _async_refresh_catalog(self, device_ids: list[str]) -> None:
-        """Reload saved designs, zones and patterns (cloud only)."""
+        """Replace each complete catalog atomically, including successful empty results."""
+        complete = True
         for device_id in device_ids:
             try:
-                self._designs[device_id] = await self.api.async_get_designs(device_id)
-                self._zones[device_id] = await self.api.async_get_zones(device_id)
+                designs = await self.api.async_get_designs(device_id)
+                zones = await self.api.async_get_zones(device_id)
             except GemstoneError as err:
+                complete = False
                 _LOGGER.debug("Could not load catalog for %s: %s", device_id, err)
+            else:
+                self._designs[device_id] = designs
+                self._zones[device_id] = zones
 
         patterns: list[dict[str, Any]] = []
         try:
@@ -342,21 +349,19 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
                 for item in await self.api.async_get_folder_patterns(folder_id):
                     data = item.get("patternData")
-                    if not data or not data.get("name"):
+                    if not isinstance(data, dict) or not data.get("name"):
                         continue
-                    patterns.append(
-                        {
-                            "folder": folder.get("name") or "",
-                            "name": data["name"],
-                            "data": data,
-                        }
-                    )
+                    patterns.append({"folder": folder.get("name") or "", "name": data["name"], "data": data})
         except GemstoneError as err:
+            complete = False
             _LOGGER.debug("Could not load patterns: %s", err)
-
-        if patterns:
+        else:
             self._patterns = patterns
-        self._catalog_refreshed = dt_util.utcnow()
+        if complete:
+            self._catalog_refreshed = dt_util.utcnow()
+            self._catalog_retry_after = None
+        else:
+            self._catalog_retry_after = dt_util.utcnow() + timedelta(minutes=1)
 
     async def _async_state_for(
         self, device_id: str, info: dict[str, Any]
@@ -408,7 +413,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         raise
                     _LOGGER.debug("Cloud discovery unavailable; using cached controllers")
                 else:
-                    self._known_devices = list({d["id"]: d for d in discovered if d.get("id")}.values())
+                    new_devices = list({d["id"]: d for d in discovered if d.get("id")}.values())
+                    if {d["id"] for d in new_devices} != set(self._device_ids):
+                        self._catalog_refreshed = None
+                    self._known_devices = new_devices
                     self._cloud_available = True
                     self._discovery_next = now + timedelta(minutes=5)
             devices = self._known_devices
@@ -418,7 +426,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._catalog_refreshed is None
                 or dt_util.utcnow() - self._catalog_refreshed > CATALOG_REFRESH_INTERVAL
             )
-            if due and self._cloud_available:
+            if due and self._cloud_available and (self._catalog_retry_after is None or now >= self._catalog_retry_after):
                 await self._async_refresh_catalog(self._device_ids)
 
             library_due = self._enable_library and (
@@ -426,7 +434,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 or dt_util.utcnow() - self._library_refreshed
                 > LIBRARY_REFRESH_INTERVAL
             )
-            if library_due and self._cloud_available:
+            if library_due and self._cloud_available and (self._library_retry_after is None or now >= self._library_retry_after):
                 await self._async_refresh_library()
 
             result: dict[str, Any] = {DATA_DEVICES: {}}
@@ -673,6 +681,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             patterns = await self.api.async_get_library_patterns()
         except GemstoneError as err:
             _LOGGER.debug("Could not load the pattern library: %s", err)
+            self._library_retry_after = dt_util.utcnow() + timedelta(minutes=5)
             return
 
         self._library_folders = {f["id"]: f for f in folders if f.get("id")}
@@ -689,6 +698,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             entries.sort(key=lambda e: e["name"])
         self._library = grouped
         self._library_refreshed = dt_util.utcnow()
+        self._library_retry_after = None
         _LOGGER.debug(
             "Loaded %s library patterns across %s folders",
             sum(len(v) for v in grouped.values()),
