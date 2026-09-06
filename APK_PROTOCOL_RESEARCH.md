@@ -19,7 +19,8 @@ port, firmware compatibility and possible initialization requirement need to be
 resolved before implementing playback in HA. Cloud-free initialization and
 controller WAN isolation remain unverified.
 
-Bluetooth timer and controller-state operations are also present. Native zone
+Bluetooth controller-state reads and writes are now verified; see
+[the captured protocol](BLUETOOTH_PROTOCOL.md). Bluetooth timer operations are also present. Native zone
 creation, playlists, provisioning, settings writes, and firmware updates remain
 unverified. All live lighting tests restored and read back the exact original
 controller state. No production integration code changed in this research step.
@@ -103,7 +104,7 @@ string literals; raw `strings` output must not be copied blindly into requests.
 | Native timers | `BluetoothReadTimerDataCmdResponse`, `readNumberOfTimers`, `readTimerData`, `setTimerShadowState`, `setTimerEnabledShadowState`, and cloud `/timer/create`, `/timer/update`, `/timer/delete` strings | Capture BLE reads and one reversible timer edit. Determine whether native timer writes are available over LAN or BLE, and how clock/DST and enabled state are encoded. |
 | Native zones | `zone_service.dart`, `zone_notifier.dart`, `/deviceControl/zone/list`, `/save`, `/delete`, `/reset` strings | Capture creating and deleting a temporary zone. Determine the actual transport and controller-side zone-definition format. Existing v1.6.0 arbitrary-zone limitations still apply. |
 | Native playlists | `playlist_service.dart`, `/deviceControl/playlist/list`, `/save`, `/delete`, `/deviceControl/play/playlist` strings | Separate app/cloud catalog CRUD from controller playback/upload. Capture a short two-step playlist and its stop operation. |
-| Bluetooth control | `bluetooth_packet.dart`, `BluetoothCmdHeader`, `writeControllerState`, controller-state response types, `writeBluetoothPassword`, `_getBluetoothPasswordFromStorage` | Map GATT services/characteristics, framing, fragmentation, opcodes, acknowledgments, and authentication. No UUID-to-operation mapping or packet format is established yet. |
+| Bluetooth control | `bluetooth_packet.dart`, `BluetoothCmdHeader`, `writeControllerState`, controller-state response types, `writeBluetoothPassword`, `_getBluetoothPasswordFromStorage` | GATT mapping, firmware/state/settings reads, state-write framing and success acknowledgment verified in [Bluetooth protocol](BLUETOOTH_PROTOCOL.md). Authentication on protected firmware remains unverified. |
 | Provisioning | `writeSsid`, `writePassword`, `requestLocalIp`, cloud `/deviceManagement/bluetoothPassword`, Bluetooth password caching | Determine whether a new controller can be provisioned account-free or whether a credential must first be obtained online. Do not factory-reset the installed controller to test this. |
 | Settings and clock | `setPixelCount`, `setTimeZone`, `setTimeThroughBluetooth`, `setTcpEnabled`; live LAN settings read succeeds | Establish which writes use BLE, LAN, or cloud. Test only reversible settings with a saved original value; output wiring/count changes need an appropriate test controller. |
 | Firmware and downloadable animations | `MicropythonService`, `downloadMicropythonFileLinks`, OTA-related API names | These do not prove a local update route. Obtain legitimate packages, identify integrity checks and update handshake, and establish recovery before any update experiment. |
