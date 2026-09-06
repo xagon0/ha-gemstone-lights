@@ -57,14 +57,19 @@
     "step": {
       "init": {
         "title": "Local control",
-        "description": "The controller can be driven directly over your network, which is faster and keeps working without internet. Enable \u201cAllow Local Commands\u201d in the Gemstone app first. The address is found automatically; set one only to override it.",
+        "description": "Prefer local control and optionally enable it on the controller. Addresses are discovered automatically. To override an address, select the controller it belongs to.",
         "data": {
           "prefer_local": "Use local control when available",
           "host": "Controller IP address (optional)",
           "enable_local": "Switch on local control on the controller if it is off",
-          "enable_library": "Load Gemstone's official pattern library"
+          "enable_library": "Load Gemstone's official pattern library",
+          "host_device_id": "Controller for the address override"
         }
       }
+    },
+    "error": {
+      "invalid_host": "Enter an IPv4 address or hostname without a URL, port, or path.",
+      "select_controller": "Select the controller this address belongs to."
     }
   },
   "services": {

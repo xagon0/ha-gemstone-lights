@@ -55,11 +55,35 @@ OPTION_PICK_FOLDER: Final = "Pick a folder"
 # Animation identifiers understood by the controller. These ship with the
 # official app; "motionless" simply holds the colours still.
 ANIMATIONS: Final = [
-    "accent", "around", "chase", "eyeball", "fade", "fireworks", "flicker",
-    "flow", "ghost", "glitch", "glitter", "gradient", "gradient_wave",
-    "isofade", "marquee", "motionless", "multipulse", "pacman", "pulse",
-    "pyramid_chase", "smooth", "spectrum", "spotlight", "stack", "starry",
-    "stretch", "sway", "tremor", "wave",
+    "accent",
+    "around",
+    "chase",
+    "eyeball",
+    "fade",
+    "fireworks",
+    "flicker",
+    "flow",
+    "ghost",
+    "glitch",
+    "glitter",
+    "gradient",
+    "gradient_wave",
+    "isofade",
+    "marquee",
+    "motionless",
+    "multipulse",
+    "pacman",
+    "pulse",
+    "pyramid_chase",
+    "smooth",
+    "spectrum",
+    "spotlight",
+    "stack",
+    "starry",
+    "stretch",
+    "sway",
+    "tremor",
+    "wave",
 ]
 
 # Presented instead of an animation when showing one plain colour.
@@ -73,6 +97,7 @@ DATA_ZONES: Final = "zones"
 # The Hub2 serves an unauthenticated HTTP API on port 80 when "Allow Local
 # Commands" is enabled in the Gemstone app.
 CONF_HOST: Final = "host"
+CONF_HOST_DEVICE: Final = "host_device_id"
 CONF_PREFER_LOCAL: Final = "prefer_local"
 CONF_ENABLE_LOCAL: Final = "enable_local"
 CONF_ENABLE_LIBRARY: Final = "enable_library"

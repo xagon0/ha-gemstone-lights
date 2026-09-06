@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import logging
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import service
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 
-from .api import GemstoneApi, GemstoneAuthError, GemstoneError
+from .api import GemstoneApi
 from .const import (
     CONF_EMAIL,
     CONF_ENABLE_LIBRARY,
     CONF_ENABLE_LOCAL,
     CONF_HOST,
+    CONF_HOST_DEVICE,
     CONF_PASSWORD,
     CONF_PREFER_LOCAL,
     DOMAIN,
@@ -34,6 +38,19 @@ PLATFORMS: list[Platform] = [
 type GemstoneConfigEntry = ConfigEntry[GemstoneCoordinator]
 
 
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register the library action even when no account is currently loaded."""
+    service.async_register_platform_entity_service(
+        hass,
+        DOMAIN,
+        "play_library_pattern",
+        entity_domain="light",
+        schema={vol.Required("pattern"): cv.string, vol.Optional("folder"): cv.string},
+        func="async_play_library_pattern",
+    )
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> bool:
     """Set up Gemstone Lights from a config entry."""
     api = GemstoneApi(
@@ -43,18 +60,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> 
         entry.data[CONF_PASSWORD],
     )
 
-    try:
-        await api.async_login()
-    except GemstoneAuthError as err:
-        raise ConfigEntryAuthFailed(str(err)) from err
-    except GemstoneError as err:
-        raise ConfigEntryNotReady(str(err)) from err
-
     coordinator = GemstoneCoordinator(
         hass,
         entry,
         api,
         host_override=entry.options.get(CONF_HOST) or None,
+        host_device_id=entry.options.get(CONF_HOST_DEVICE) or None,
         prefer_local=entry.options.get(CONF_PREFER_LOCAL, True),
         enable_local=entry.options.get(CONF_ENABLE_LOCAL, True),
         enable_library=entry.options.get(CONF_ENABLE_LIBRARY, True),
@@ -75,3 +86,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) ->
 async def _async_reload_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> None:
     """Reload the entry when its options change."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> None:
+    """Remove persisted controller metadata when the account is removed."""
+    await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}").async_remove()

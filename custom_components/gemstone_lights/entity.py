@@ -4,11 +4,32 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import GemstoneCoordinator
+
+
+@callback
+def async_add_discovered_entities(entry, async_add_entities, factory) -> None:
+    """Add each platform's entities when controllers appear, with unload cleanup."""
+    coordinator = entry.runtime_data
+    known: set[str] = set()
+
+    @callback
+    def add_new() -> None:
+        entities = []
+        for device_id in coordinator.device_ids:
+            if device_id not in known:
+                known.add(device_id)
+                entities.extend(factory(coordinator, device_id))
+        if entities:
+            async_add_entities(entities)
+
+    add_new()
+    entry.async_on_unload(coordinator.async_add_listener(add_new))
 
 
 class GemstoneEntity(CoordinatorEntity[GemstoneCoordinator]):
@@ -46,4 +67,6 @@ class GemstoneEntity(CoordinatorEntity[GemstoneCoordinator]):
     @property
     def available(self) -> bool:
         """Return True when the controller is reachable."""
-        return bool(super().available and self._info.get("online", False))
+        return bool(
+            super().available and self.coordinator.device_available(self._device_id)
+        )

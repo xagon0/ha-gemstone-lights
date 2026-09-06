@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import GemstoneConfigEntry
 from .coordinator import GemstoneCoordinator
-from .entity import GemstoneEntity
+from .entity import GemstoneEntity, async_add_discovered_entities
 
 
 async def async_setup_entry(
@@ -19,9 +17,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up an animation speed control per controller."""
-    coordinator = entry.runtime_data
-    async_add_entities(
-        GemstoneSpeed(coordinator, device_id) for device_id in coordinator.device_ids
+    async_add_discovered_entities(
+        entry,
+        async_add_entities,
+        lambda coordinator, device_id: [GemstoneSpeed(coordinator, device_id)],
     )
 
 
@@ -52,10 +51,4 @@ class GemstoneSpeed(GemstoneEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Store the speed and re-apply any running effect."""
-        self.coordinator.set_speed(self._device_id, int(value))
-        self.async_write_ha_state()
-
-        pattern: dict[str, Any] | None = self._state.get("pattern")
-        if pattern:
-            updated = {**pattern, "speed": int(value)}
-            await self.coordinator.async_play_pattern(self._device_id, updated)
+        await self.coordinator.async_set_speed(self._device_id, int(value))
