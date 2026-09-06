@@ -81,6 +81,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._enable_local = enable_local
         self._enable_library = enable_library
         self._enable_attempted: set[str] = set()
+        self._enable_retry_after: dict[str, datetime] = {}
         self._known_devices: list[dict[str, Any]] = []
         self._discovery_next: datetime | None = None
         self._cloud_available = True
@@ -319,11 +320,23 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Respect the app's own switch, unless an address was pinned by hand.
         if not override and hub.get("tcpEnabled") is False:
-            if self._enable_local and device_id not in self._enable_attempted:
+            if (
+                self._enable_local
+                and not self._reauth_started
+                and device_id not in self._enable_attempted
+                and (
+                    device_id not in self._enable_retry_after
+                    or dt_util.utcnow() >= self._enable_retry_after[device_id]
+                )
+            ):
                 # The switch can be flipped from the cloud, so offer to do it
                 # rather than making the user go into the app.
                 self._enable_attempted.add(device_id)
-                self.hass.async_create_task(self._async_enable_local(device_id))
+                self.config_entry.async_create_background_task(
+                    self.hass,
+                    self._async_enable_local(device_id),
+                    f"Enable Gemstone local control: {device_id}",
+                )
             elif self._local_ok.get(device_id) is not False:
                 _LOGGER.info(
                     "Gemstone %s: 'Allow Local Commands' is off, using cloud",
@@ -357,6 +370,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             await self.api.async_set_local_enabled(device_id, True)
         except GemstoneError as err:
+            self._handle_cloud_error(err)
+            self._enable_retry_after[device_id] = dt_util.utcnow() + LOCAL_RETRY_BACKOFF
             _LOGGER.warning(
                 "Gemstone %s: could not enable local control (%s); "
                 "turn on 'Allow Local Commands' in the Gemstone app",
@@ -364,6 +379,13 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 err,
             )
             return
+        finally:
+            self._enable_attempted.discard(device_id)
+        for device in self._known_devices:
+            if device.get("id") == device_id:
+                device.setdefault("hub", {})["tcpEnabled"] = True
+        self._enable_retry_after.pop(device_id, None)
+        await self._async_save_cache()
         _LOGGER.info("Gemstone %s: enabled local control on the controller", device_id)
 
     # -- polling ------------------------------------------------------------

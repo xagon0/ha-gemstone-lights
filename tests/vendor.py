@@ -48,6 +48,10 @@ class Vendor:
         if "json" in kwargs and kwargs["json"] is not None:
             body = deepcopy(kwargs["json"])
             self.writes.append(("cloud", device, path, body))
+            if path == "/deviceControl/deviceSettings":
+                for info in self.devices:
+                    if info["id"] == device:
+                        info.setdefault("hub", {}).update(body)
             if len(self.writes) == 1 and self.release_first_write is not None:
                 self.first_write_started.set()
                 await self.release_first_write.wait()

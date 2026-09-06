@@ -99,3 +99,23 @@ async def test_cloud_reauthentication_keeps_local_entities_operational(
     )
     assert vendor.writes[-1][0] == "local"
     assert not vendor.states["hub"]["onState"]
+
+
+async def test_enabling_local_control_updates_cached_discovery_immediately(
+    hass, loaded_entry, vendor
+):
+    # Given local commands have been disabled since the last cloud discovery.
+    loaded_entry._known_devices[0]["hub"]["tcpEnabled"] = False
+    vendor.devices[0]["hub"]["tcpEnabled"] = False
+    # When a poll enables local access and the next poll selects a transport.
+    await loaded_entry.async_refresh()
+    await hass.async_block_till_done()
+    await loaded_entry.async_refresh()
+    # Then the controller is used locally without waiting for cloud rediscovery or repeating the enable write.
+    settings_writes = [
+        write for write in vendor.writes if write[2] == "/deviceControl/deviceSettings"
+    ]
+    assert settings_writes == [
+        ("cloud", "hub", "/deviceControl/deviceSettings", {"tcpEnabled": True})
+    ]
+    assert loaded_entry.is_local("hub")
