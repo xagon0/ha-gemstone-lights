@@ -30,6 +30,7 @@ from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .commands import serialized
 from .const import (
     CATALOG_REFRESH_INTERVAL,
+    CONF_LOCAL_DEVICE,
     DATA_DESIGNS,
     DATA_DEVICES,
     DATA_INFO,
@@ -59,7 +60,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        api: GemstoneApi,
+        api: GemstoneApi | None,
         *,
         host_override: str | None = None,
         host_device_id: str | None = None,
@@ -78,14 +79,14 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.api = api
         self._host_override = host_override
         self._host_device_id = host_device_id
-        self._prefer_local = prefer_local
-        self._enable_local = enable_local
-        self._enable_library = enable_library
+        self._prefer_local = prefer_local or api is None
+        self._enable_local = enable_local and api is not None
+        self._enable_library = enable_library and api is not None
         self._enable_attempted: set[str] = set()
         self._enable_retry_after: dict[str, datetime] = {}
         self._known_devices: list[dict[str, Any]] = []
         self._discovery_next: datetime | None = None
-        self._cloud_available = True
+        self._cloud_available = api is not None
         self._reauth_started = False
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
         self._saved_cache: dict[str, Any] | None = None
@@ -123,7 +124,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Restore discovery before attempting any cloud authentication."""
         cached = await self._store.async_load()
         if not isinstance(cached, dict):
-            return
+            if CONF_LOCAL_DEVICE not in self.config_entry.data:
+                return
+            cached = {"devices": [self.config_entry.data[CONF_LOCAL_DEVICE]]}
         devices = cached.get("devices", [])
         if not isinstance(devices, list) or any(
             not isinstance(d, dict) or not d.get("id") for d in devices
@@ -355,7 +358,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Back off after a failure rather than stalling every poll.
         retry_after = self._local_retry_after.get(device_id)
-        if retry_after and dt_util.utcnow() < retry_after:
+        if self.api is not None and retry_after and dt_util.utcnow() < retry_after:
             return None
 
         existing = self._local.get(device_id)
@@ -376,6 +379,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_enable_local(self, device_id: str) -> None:
         """Switch on the controller's local commands via the cloud."""
         try:
+            if self.api is None:
+                return
             await self.api.async_set_local_enabled(device_id, True)
         except GemstoneError as err:
             self._handle_cloud_error(err)
@@ -484,7 +489,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except GemstoneLocalError as err:
                 if self._local_ok.get(device_id) is not False:
                     _LOGGER.warning(
-                        "Gemstone %s: local control unavailable (%s), using cloud",
+                        "Gemstone %s: local control unavailable (%s)",
                         device_id,
                         err,
                     )
@@ -493,6 +498,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     dt_util.utcnow() + LOCAL_RETRY_BACKOFF
                 )
 
+        if self.api is None:
+            raise GemstoneError(
+                "Controller unavailable locally; cloud access is disabled"
+            )
         if self._reauth_started:
             raise GemstoneAuthError("Gemstone account needs reauthentication")
         return await self.api.async_get_state(device_id)
@@ -506,8 +515,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch controller state (and the catalog when due)."""
         try:
             now = dt_util.utcnow()
-            if not self._reauth_started and (
-                self._discovery_next is None or now >= self._discovery_next
+            if (
+                self.api is not None
+                and not self._reauth_started
+                and (self._discovery_next is None or now >= self._discovery_next)
             ):
                 self._discovery_next = now + timedelta(minutes=1)
                 try:
@@ -538,6 +549,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if (
                 due
+                and self.api is not None
                 and self._cloud_available
                 and (
                     self._catalog_retry_after is None
@@ -552,6 +564,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if (
                 library_due
+                and self.api is not None
                 and self._cloud_available
                 and (
                     self._library_retry_after is None
@@ -685,7 +698,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
             except GemstoneLocalError as err:
                 _LOGGER.warning(
-                    "Gemstone %s: local command failed (%s), retrying via cloud",
+                    "Gemstone %s: local command failed (%s)",
                     device_id,
                     err,
                 )
@@ -695,6 +708,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
         try:
+            if self.api is None:
+                raise GemstoneError(
+                    "Command could not be sent locally; cloud access is disabled"
+                )
             if self._reauth_started:
                 raise GemstoneAuthError("Gemstone account needs reauthentication")
             await cloud_coro()

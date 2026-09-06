@@ -26,10 +26,13 @@ from .const import (
     CONF_ENABLE_LOCAL,
     CONF_HOST,
     CONF_HOST_DEVICE,
+    CONF_LOCAL_DEVICE,
+    CONF_LOCAL_ONLY,
     CONF_PASSWORD,
     CONF_PREFER_LOCAL,
     DOMAIN,
 )
+from .local_api import GemstoneLocalApi, GemstoneLocalError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,12 +43,34 @@ STEP_USER_SCHEMA = vol.Schema(
 
 OPTIONS_SCHEMA = vol.Schema(
     {
+        vol.Optional(CONF_LOCAL_ONLY, default=False): bool,
         vol.Optional(CONF_PREFER_LOCAL, default=True): bool,
         vol.Optional(CONF_ENABLE_LOCAL, default=True): bool,
         vol.Optional(CONF_ENABLE_LIBRARY, default=True): bool,
         vol.Optional(CONF_HOST, default=""): str,
     }
 )
+
+
+def valid_host(host: str) -> bool:
+    """Accept an IPv4 address or DNS hostname, never a URL or path."""
+    try:
+        ipaddress.IPv4Address(host)
+        return True
+    except ValueError:
+        return bool(
+            not re.fullmatch(r"[0-9.]+", host)
+            and re.fullmatch(
+                r"(?=.{1,253}$)[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?", host
+            )
+            and all(
+                label
+                and len(label) <= 63
+                and not label.startswith("-")
+                and not label.endswith("-")
+                for label in host.split(".")
+            )
+        )
 
 
 class GemstoneConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -84,6 +109,78 @@ class GemstoneConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle the initial step."""
+        if user_input is not None:
+            return await self.async_step_cloud(user_input)
+        return self.async_show_menu(step_id="user", menu_options=["local", "cloud"])
+
+    async def async_step_local(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Connect to an already provisioned controller without a Gemstone account."""
+        errors = {}
+        if user_input is not None:
+            host = user_input[CONF_HOST].strip().lower()
+            if not valid_host(host):
+                errors[CONF_HOST] = "invalid_host"
+            else:
+                await self.async_set_unique_id(f"local:{host}")
+                self._abort_if_unique_id_configured()
+                # Reject an address already attached to an account entry as well.
+                for entry in self._async_current_entries():
+                    coordinator = getattr(entry, "runtime_data", None)
+                    if coordinator and any(
+                        coordinator.local_host(device_id) == host
+                        for device_id in coordinator.device_ids
+                    ):
+                        return self.async_abort(reason="already_configured")
+                client = GemstoneLocalApi(async_get_clientsession(self.hass), host)
+                try:
+                    settings = await client.async_get_settings()
+                    await client.async_get_state()
+                except GemstoneLocalError:
+                    errors["base"] = "cannot_connect_local"
+                else:
+                    name = user_input.get("name", "").strip() or f"Gemstone {host}"
+                    return self.async_create_entry(
+                        title=name,
+                        data={
+                            CONF_LOCAL_ONLY: True,
+                            CONF_HOST: host,
+                            CONF_LOCAL_DEVICE: {
+                                "id": f"local:{host}",
+                                "name": name,
+                                "firmware": settings.get("firmware"),
+                                "hub": {
+                                    **{
+                                        k: settings[k]
+                                        for k in (
+                                            "pixelCount",
+                                            "rgbwSequence",
+                                            "pixelOutputNames",
+                                        )
+                                        if k in settings
+                                    },
+                                    "localIp": host,
+                                    "tcpEnabled": True,
+                                },
+                            },
+                        },
+                    )
+        return self.async_show_form(
+            step_id="local",
+            errors=errors,
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST): str,
+                    vol.Optional("name", default="Gemstone Lights"): str,
+                }
+            ),
+        )
+
+    async def async_step_cloud(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Optionally import controllers and catalogs from an account."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -101,7 +198,7 @@ class GemstoneConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
 
         return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors
+            step_id="cloud", data_schema=STEP_USER_SCHEMA, errors=errors
         )
 
     async def async_step_reauth(
@@ -170,28 +267,30 @@ class GemstoneOptionsFlow(OptionsFlow):
             host = (user_input.get(CONF_HOST) or "").strip()
             selected = user_input.get(CONF_HOST_DEVICE) or ""
             if host:
-                try:
-                    ipaddress.IPv4Address(host)
-                except ValueError:
-                    if (
-                        re.fullmatch(r"[0-9.]+", host)
-                        or not re.fullmatch(
-                            r"(?=.{1,253}$)[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?",
-                            host,
-                        )
-                        or any(
-                            not label
-                            or len(label) > 63
-                            or label.startswith("-")
-                            or label.endswith("-")
-                            for label in host.split(".")
-                        )
-                    ):
-                        errors[CONF_HOST] = "invalid_host"
+                if not valid_host(host):
+                    errors[CONF_HOST] = "invalid_host"
                 if not selected and len(device_ids) == 1:
                     selected = device_ids[0]
                 if not selected or selected not in device_ids:
                     errors[CONF_HOST_DEVICE] = "select_controller"
+            local_only = self.config_entry.data.get(
+                CONF_LOCAL_ONLY, False
+            ) or user_input.get(CONF_LOCAL_ONLY, False)
+            if (
+                local_only
+                and coordinator
+                and any(
+                    not (
+                        (host and selected == device_id)
+                        or coordinator.local_host(device_id)
+                        or (
+                            coordinator.device_info_raw(device_id).get("hub") or {}
+                        ).get("localIp")
+                    )
+                    for device_id in device_ids
+                )
+            ):
+                errors["base"] = "missing_local_address"
             if errors:
                 return self.async_show_form(
                     step_id="init",
@@ -200,7 +299,9 @@ class GemstoneOptionsFlow(OptionsFlow):
                 )
             return self.async_create_entry(
                 data={
-                    CONF_PREFER_LOCAL: user_input.get(CONF_PREFER_LOCAL, True),
+                    CONF_LOCAL_ONLY: local_only,
+                    CONF_PREFER_LOCAL: local_only
+                    or user_input.get(CONF_PREFER_LOCAL, True),
                     CONF_ENABLE_LOCAL: user_input.get(CONF_ENABLE_LOCAL, True),
                     CONF_ENABLE_LIBRARY: user_input.get(CONF_ENABLE_LIBRARY, True),
                     CONF_HOST: host,

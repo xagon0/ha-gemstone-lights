@@ -20,6 +20,8 @@ from .const import (
     CONF_ENABLE_LOCAL,
     CONF_HOST,
     CONF_HOST_DEVICE,
+    CONF_LOCAL_DEVICE,
+    CONF_LOCAL_ONLY,
     CONF_PASSWORD,
     CONF_PREFER_LOCAL,
     DOMAIN,
@@ -53,19 +55,27 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> bool:
     """Set up Gemstone Lights from a config entry."""
-    api = GemstoneApi(
-        hass,
-        async_get_clientsession(hass),
-        entry.data[CONF_EMAIL],
-        entry.data[CONF_PASSWORD],
+    local_only = entry.data.get(CONF_LOCAL_ONLY, False) or entry.options.get(
+        CONF_LOCAL_ONLY, False
+    )
+    api = (
+        None
+        if local_only
+        else GemstoneApi(
+            hass,
+            async_get_clientsession(hass),
+            entry.data[CONF_EMAIL],
+            entry.data[CONF_PASSWORD],
+        )
     )
 
     coordinator = GemstoneCoordinator(
         hass,
         entry,
         api,
-        host_override=entry.options.get(CONF_HOST) or None,
-        host_device_id=entry.options.get(CONF_HOST_DEVICE) or None,
+        host_override=entry.options.get(CONF_HOST) or entry.data.get(CONF_HOST),
+        host_device_id=entry.options.get(CONF_HOST_DEVICE)
+        or (entry.data.get(CONF_LOCAL_DEVICE) or {}).get("id"),
         prefer_local=entry.options.get(CONF_PREFER_LOCAL, True),
         enable_local=entry.options.get(CONF_ENABLE_LOCAL, True),
         enable_library=entry.options.get(CONF_ENABLE_LIBRARY, True),
