@@ -22,6 +22,7 @@ import time
 from typing import Any
 
 import aiohttp
+from botocore.exceptions import ClientError
 from homeassistant.core import HomeAssistant
 
 from .const import (
@@ -131,8 +132,16 @@ class GemstoneApi:
         """Log in with the configured credentials."""
         try:
             tokens = await self._hass.async_add_executor_job(self._login_sync)
-        except Exception as err:  # noqa: BLE001 - surface as auth failure
-            raise GemstoneAuthError(f"Gemstone login failed: {err}") from err
+        except ClientError as err:
+            code = err.response.get("Error", {}).get("Code")
+            if code in {
+                "NotAuthorizedException", "UserNotFoundException",
+                "UserNotConfirmedException", "PasswordResetRequiredException",
+            }:
+                raise GemstoneAuthError("Gemstone rejected the account credentials") from err
+            raise GemstoneApiError("Gemstone authentication is temporarily unavailable") from err
+        except Exception as err:
+            raise GemstoneApiError("Could not connect to Gemstone authentication") from err
         self._store(tokens)
         _LOGGER.debug("Gemstone login succeeded for %s", self._email)
 
