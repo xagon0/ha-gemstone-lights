@@ -35,7 +35,7 @@ from .const import (
     COGNITO_USER_POOL_ID,
     REQUEST_TIMEOUT,
 )
-from .validation import validate_state
+from .validation import validate_design, validate_pattern, validate_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -237,6 +237,16 @@ class GemstoneApi:
                             raise GemstoneApiError(f"{path} returned invalid state") from err
                     if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
                         raise GemstoneApiError(f"{path} returned an invalid catalog")
+                    try:
+                        for item in data:
+                            if path == "/homegroup/devices" and item.get("hub") is not None and not isinstance(item["hub"], dict):
+                                raise ValueError("Invalid hub metadata")
+                            if path == "/deviceControl/architectural/list":
+                                validate_design(item)
+                            if item.get("patternData") is not None:
+                                validate_pattern(item["patternData"])
+                    except ValueError as err:
+                        raise GemstoneApiError(f"{path} returned invalid catalog content") from err
                 return data
         except asyncio.TimeoutError as err:
             raise GemstoneApiError(f"Timeout calling {method} {path}") from err
