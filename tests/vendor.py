@@ -59,7 +59,14 @@ class Vendor:
                 if "onState" in body:
                     self.states.setdefault(device, {}).update(body)
                 else:
-                    self.states[device] = {"onState": True, **body}
+                    self.states[device] = {"onState": True, **deepcopy(body)}
+                    design = self.states[device].get("architectural") or {}
+                    if design.get("zonePatterns"):
+                        # Observed on Hub2 1.1.5: cloud play normalizes nested
+                        # brightness and adds an empty static pixel collection.
+                        design.setdefault("staticColors", [])
+                        for entry in design["zonePatterns"]:
+                            entry["pattern"]["brightness"] = 255
             return CallbackResult(payload={"data": None})
         data = {
             "/homegroup/list": [{"id": "home"}],

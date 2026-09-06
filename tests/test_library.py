@@ -20,6 +20,6 @@ async def test_library_action_targets_only_the_selected_zone(coordinator, vendor
         e["zoneId"]: e["pattern"]
         for e in vendor.writes[-1][3]["architectural"]["zonePatterns"]
     }
-    assert entries["front"] == pattern
+    assert entries["front"] == {**pattern, "brightness": 255}
     assert entries["back"]["colors"] == [255]
     assert entries["back"]["animation"] == "motionless"
