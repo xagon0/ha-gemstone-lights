@@ -48,3 +48,19 @@ async def test_external_color_change_replaces_remembered_brightness(coordinator,
     # Then the old red/brightness interpretation is discarded instead of masking the external change.
     assert light.rgbw_color == (0, 255, 0, 0)
     assert light.brightness == 255
+
+
+async def test_power_change_retains_local_zone_brightness_interpretation(coordinator, vendor):
+    # Given a local solid zone whose physical color encodes its brightness.
+    vendor.devices[0]["hub"] = {"localIp": "192.0.2.10", "tcpEnabled": True}
+    coordinator.data = await coordinator._async_update_data()
+    await coordinator.async_play_design("hub", {"brightness": 255, "zonePatterns": [{"zoneId": "front", "pattern": {"colors": [255], "animation": "motionless", "brightness": 80}}]})
+    # When power is switched off and the controller's retained pixel layout is read back.
+    await coordinator.async_set_power("hub", False)
+    coordinator._pending_states.clear()
+    coordinator.data = await coordinator._async_update_data()
+    front = GemstoneZoneLight(coordinator, "hub", "front")
+    # Then the zone is off while its logical red and brightness remain available for restoration.
+    assert not front.is_on
+    assert front.rgbw_color == (255, 0, 0, 0)
+    assert front.brightness == 80

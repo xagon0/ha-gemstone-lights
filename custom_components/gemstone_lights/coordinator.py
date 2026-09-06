@@ -589,11 +589,13 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_power(self, device_id: str, on: bool) -> None:
         """Turn a controller on or off."""
         client = self._local.get(device_id)
+        wire = self._state_aliases.get(device_id, {}).get("wire", self.device_state(device_id))
         await self._async_command(
             device_id,
             (lambda: client.async_set_power(on)) if client else None,
             lambda: self.api.async_set_power(device_id, on),
             {**self.device_state(device_id), "onState": on},
+            {**wire, "onState": on},
         )
 
     @serialized
