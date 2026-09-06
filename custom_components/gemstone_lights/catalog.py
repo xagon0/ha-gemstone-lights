@@ -19,6 +19,9 @@ def checked_content(kind: str, content: dict) -> dict:
     try:
         if kind == "pattern":
             validate_pattern(value)
+            background = value.get("backgroundColor", 0)
+            if type(background) is not int or not 0 <= background <= 0xFFFFFFFF:
+                raise ValueError("Invalid background color")
             if not value.get("colors"):
                 raise ValueError("A pattern needs at least one color")
             animation = value.setdefault("animation", "motionless")
