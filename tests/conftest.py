@@ -72,4 +72,5 @@ async def coordinator(hass, entry, api, vendor):
         "state": {"onState": True, "color": 255},
     }}}
     entry.runtime_data = result
-    return result
+    yield result
+    await result.async_shutdown()

@@ -11,8 +11,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
+from time import monotonic
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -21,9 +23,11 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
+from .commands import serialized
 from .const import (
     CATALOG_REFRESH_INTERVAL,
     LIBRARY_REFRESH_INTERVAL,
@@ -94,7 +98,12 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._speeds: dict[str, int] = {}
 
         # The controller drops writes that arrive too close together.
-        self._write_lock = asyncio.Lock()
+        self._write_locks: dict[str, asyncio.Lock] = {}
+        self._write_owners: dict[str, asyncio.Task] = {}
+        self._last_write: dict[str, float] = {}
+        self._pending_states: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._state_versions: dict[str, int] = {}
+        self._refresh_cancel = None
         self._local: dict[str, GemstoneLocalApi] = {}
         self._local_ok: dict[str, bool] = {}
         # Don't retry a controller we can't reach on every single poll.
@@ -141,6 +150,46 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._saved_cache = cached
 
     # -- basics -------------------------------------------------------------
+
+    @asynccontextmanager
+    async def _device_lock(self, device_id: str):
+        """Serialize each device while allowing nested commands in the same task."""
+        task = asyncio.current_task()
+        if self._write_owners.get(device_id) is task:
+            yield
+            return
+        lock = self._write_locks.setdefault(device_id, asyncio.Lock())
+        async with lock:
+            self._write_owners[device_id] = task
+            try:
+                yield
+            finally:
+                self._write_owners.pop(device_id, None)
+
+    async def async_shutdown(self) -> None:
+        """Cancel delayed command refreshes on unload."""
+        if self._refresh_cancel:
+            self._refresh_cancel()
+            self._refresh_cancel = None
+        await super().async_shutdown()
+
+    def _publish_command(self, device_id: str, state: dict[str, Any]) -> None:
+        """Publish a successful command immediately and protect it from stale echoes."""
+        self._state_versions[device_id] = self._state_versions.get(device_id, 0) + 1
+        self._pending_states[device_id] = (monotonic() + 5, deepcopy(state))
+        data = dict(self.data or {})
+        records = dict(data.get(DATA_DEVICES, {}))
+        records[device_id] = {**records.get(device_id, {}), DATA_STATE: deepcopy(state), "available": True}
+        data[DATA_DEVICES] = records
+        self.async_set_updated_data(data)
+        if self._refresh_cancel:
+            self._refresh_cancel()
+
+        async def refresh(_now):
+            self._refresh_cancel = None
+            await self.async_request_refresh()
+
+        self._refresh_cancel = async_call_later(self.hass, 2, refresh)
 
     @property
     def device_ids(self) -> list[str]:
@@ -371,13 +420,20 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._async_refresh_library()
 
             result: dict[str, Any] = {DATA_DEVICES: {}}
+            versions = dict(self._state_versions)
             for device in devices:
                 device_id = device.get("id")
                 if not device_id:
                     continue
                 available = True
                 try:
-                    state = await self._async_state_for(device_id, device)
+                    async with self._device_lock(device_id):
+                        state = await self._async_state_for(device_id, device)
+                        pending = self._pending_states.get(device_id)
+                        if pending and monotonic() < pending[0]:
+                            state = deepcopy(pending[1])
+                        else:
+                            self._pending_states.pop(device_id, None)
                 except GemstoneAuthError:
                     raise
                 except GemstoneError as err:
@@ -395,6 +451,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result[DATA_DESIGNS] = self._designs
             result[DATA_PATTERNS] = self._patterns
             await self._async_save_cache()
+            for device_id in result[DATA_DEVICES]:
+                if self._state_versions.get(device_id, 0) != versions.get(device_id, 0):
+                    result[DATA_DEVICES][device_id] = self.data[DATA_DEVICES][device_id]
             return result
 
         except GemstoneAuthError as err:
@@ -439,18 +498,20 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- commands (local first, cloud fallback) ----------------------------
 
-    async def _async_command(self, device_id: str, local_coro, cloud_coro) -> None:
+    async def _async_command(self, device_id: str, local_coro, cloud_coro, state: dict[str, Any]) -> None:
         """Run a command locally when possible, else via the cloud.
 
         Writes are serialised and spaced: the controller silently ignores
         commands that arrive back to back.
         """
+        delay = LOCAL_WRITE_GAP - (monotonic() - self._last_write.get(device_id, 0))
+        if delay > 0:
+            await asyncio.sleep(delay)
         if local_coro is not None and self.is_local(device_id):
             try:
-                async with self._write_lock:
-                    await local_coro()
-                    await asyncio.sleep(LOCAL_WRITE_GAP)
-                await self.async_request_refresh()
+                await local_coro()
+                self._last_write[device_id] = monotonic()
+                self._publish_command(device_id, state)
                 return
             except GemstoneLocalError as err:
                 _LOGGER.warning(
@@ -464,9 +525,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
         await cloud_coro()
-        await asyncio.sleep(2)
-        await self.async_request_refresh()
+        self._last_write[device_id] = monotonic()
+        self._publish_command(device_id, state)
 
+    @serialized
     async def async_set_power(self, device_id: str, on: bool) -> None:
         """Turn a controller on or off."""
         client = self._local.get(device_id)
@@ -474,8 +536,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_id,
             (lambda: client.async_set_power(on)) if client else None,
             lambda: self.api.async_set_power(device_id, on),
+            {**self.device_state(device_id), "onState": on},
         )
 
+    @serialized
     async def async_play_color(
         self, device_id: str, packed: int, brightness: int
     ) -> None:
@@ -507,8 +571,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if client
             else None,
             _cloud,
+            {"onState": True, "colorB": {"value": packed, "brightness": brightness}},
         )
 
+    @serialized
     async def async_play_pattern(self, device_id: str, pattern: dict[str, Any]) -> None:
         """Play a pattern."""
         client = self._local.get(device_id)
@@ -518,8 +584,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if client
             else None,
             lambda: self.api.async_play_pattern(device_id, pattern),
+            {"onState": True, "pattern": deepcopy(pattern)},
         )
 
+    @serialized
     async def async_play_design(self, device_id: str, design: dict[str, Any]) -> None:
         """Play an architectural design."""
         client = self._local.get(device_id)
@@ -530,8 +598,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if client
             else None,
             lambda: self.api.async_play_design(device_id, design),
+            {"onState": True, "architectural": deepcopy(payload)},
         )
 
+    @serialized
     async def async_set_brightness(self, device_id: str, brightness: int) -> bool:
         """Dim or brighten whatever is playing without replacing it.
 
@@ -716,6 +786,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     break
         return result
 
+    @serialized
     async def async_set_zone(
         self, device_id: str, zone_id: str, spec: dict[str, Any] | None
     ) -> None:
@@ -760,12 +831,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "staticColors": static,
             }
             try:
-                async with self._write_lock:
-                    await client.async_play(
-                        {"onState": True, "architectural": design}
-                    )
-                    await asyncio.sleep(LOCAL_WRITE_GAP)
-                await self.async_request_refresh()
+                await self.async_play_design(device_id, design)
                 return
             except GemstoneLocalError as err:
                 _LOGGER.warning(
@@ -787,7 +853,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
             for zid, entry in desired.items()
         ]
-        await self.api.async_play_design(
+        await self.async_play_design(
             device_id,
             {
                 "id": str(uuid.uuid4()),
@@ -796,5 +862,3 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "zonePatterns": zone_patterns,
             },
         )
-        await asyncio.sleep(2)
-        await self.async_request_refresh()
