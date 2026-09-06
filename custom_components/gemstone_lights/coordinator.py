@@ -802,6 +802,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         design = self.device_state(device_id).get("architectural") or {}
 
         if not design:
+            if self.device_state(device_id).get("playlist") or self.device_state(device_id).get("impulse"):
+                return {}
             return {
                 zone_id: {
                     "color": (entry["pattern"].get("colors") or [0])[0],
@@ -848,7 +850,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _zone_entries(self, device_id: str) -> dict[str, dict[str, Any]]:
         """Keep complete vendor patterns and entry metadata for neighboring zones."""
-        design = self.device_state(device_id).get("architectural") or {}
+        state = self.device_state(device_id)
+        if state.get("onState") and (state.get("playlist") or state.get("impulse")):
+            raise HomeAssistantError("Stop the playlist or music mode before editing individual zones")
+        design = state.get("architectural") or {}
         if not design:
             state = self.device_state(device_id)
             pattern = state.get("pattern")
@@ -876,6 +881,13 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     pattern = entry["pattern"]
                     pattern["brightness"] = round(pattern.get("brightness", 255) * design["brightness"] / 255)
             return entries
+        if static := design.get("staticColors"):
+            mapped = self.zone_states(device_id)
+            ranges = self.zone_ranges(device_id)
+            represented = {pixel for zid in mapped if zid in ranges for pixel in range(ranges[zid][0], ranges[zid][1] + 1)}
+            lit = {pixel for item in static if item.get("color") for pixel in item.get("lights", [])}
+            if not lit.issubset(represented):
+                raise HomeAssistantError("This pixel design cannot be preserved as zones. Select a zone design before editing individual zones")
         return {
             zone_id: {
                 "zoneId": zone_id,

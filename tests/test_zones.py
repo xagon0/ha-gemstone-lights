@@ -1,6 +1,8 @@
 """Zone editing must preserve content outside the fields being changed."""
 
 from copy import deepcopy
+import pytest
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.gemstone_lights.light import GemstoneZoneLight
 
@@ -88,3 +90,13 @@ async def test_local_zones_keep_independent_brightness_after_echo(coordinator, v
     assert GemstoneZoneLight(coordinator, "hub", "front").brightness == 80
     assert GemstoneZoneLight(coordinator, "hub", "back").rgbw_color == (0, 0, 0, 255)
     assert GemstoneZoneLight(coordinator, "hub", "back").brightness == 200
+
+
+async def test_zone_edit_does_not_discard_unmapped_pixel_content(coordinator, vendor):
+    # Given an external pixel layout includes content outside the configured zones.
+    coordinator.data["devices"]["hub"]["state"] = {"onState": True, "architectural": {"staticColors": [{"lights": [1, 2], "color": 255}]}}
+    # When a zone edit would otherwise reconstruct and lose that unrelated content.
+    with pytest.raises(HomeAssistantError, match="cannot be preserved"):
+        await coordinator.async_set_zone("hub", "front", {"color": 65280})
+    # Then no replacement command is sent to the controller.
+    assert vendor.writes == []
