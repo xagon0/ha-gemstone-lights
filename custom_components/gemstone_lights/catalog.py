@@ -9,7 +9,7 @@ from copy import deepcopy
 
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import ANIMATIONS, EFFECT_SOLID
+from .const import ANIMATIONS, DEFAULT_SPEED, EFFECT_SOLID
 from .validation import validate_design, validate_pattern
 
 
@@ -30,7 +30,7 @@ def checked_content(kind: str, content: dict) -> dict:
             elif animation not in ANIMATIONS:
                 raise ValueError("Unknown animation")
             for key in ("speed", "direction"):
-                limit = 255 if key == "speed" else 1
+                limit = 255 if key == "speed" else 5
                 if key in value and (
                     type(value[key]) is not int or not 0 <= value[key] <= limit
                 ):
@@ -54,6 +54,18 @@ def checked_content(kind: str, content: dict) -> dict:
             value = {"lights": [end - start + 1, start, end]}
         else:
             raise ValueError("Unknown content kind")
+        if kind in ("pattern", "design"):
+            value.setdefault("id", str(uuid.uuid4()))
+            value.setdefault("name", f"Home Assistant {kind.title()}")
+            value.setdefault("brightness", 255)
+            if not isinstance(value["id"], str) or not value["id"]:
+                raise ValueError("Invalid content id")
+            if not isinstance(value["name"], str) or not value["name"]:
+                raise ValueError("Invalid content name")
+        if kind == "pattern":
+            value.setdefault("speed", DEFAULT_SPEED)
+            value.setdefault("direction", 0)
+            value.setdefault("backgroundColor", 0)
         if len(json.dumps(value).encode()) > 1024 * 1024:
             raise ValueError("Content is too large")
     except (ValueError, TypeError) as err:
