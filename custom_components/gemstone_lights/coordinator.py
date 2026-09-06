@@ -489,7 +489,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "id": str(uuid.uuid4()),
             "name": name or animation.replace("_", " ").title(),
             "colors": colors or [0xFFFFFF],
-            "animation": EFFECT_SOLID if animation == EFFECT_SOLID else animation,
+            "animation": "motionless" if animation == EFFECT_SOLID else animation,
             "speed": self.speed(device_id),
             "brightness": max(1, min(255, brightness)),
             "direction": 0,
@@ -595,7 +595,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_command(
             device_id,
             (lambda: client.async_play({"onState": True, "architectural": payload}))
-            if client
+            if client and not payload.get("zonePatterns")
             else None,
             lambda: self.api.async_play_design(device_id, design),
             {"onState": True, "architectural": deepcopy(payload)},
