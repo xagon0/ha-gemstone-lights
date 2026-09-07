@@ -95,3 +95,31 @@ they can contain private device/network metadata. The older signed app build
 0.4.83 also uses the incompatible Shorebird snapshot format; no stock Dart
 decompilation was obtained. Emulator instrumentation was removed from the running
 app, its network settings restored, and the emulator shut down after capture.
+
+
+## Implemented client and additional live checks
+
+The optional HA transport implements all four commands above through HA's
+connectable Bluetooth discovery and `bleak-retry-connector`. It checks the GATT
+interface, serializes exchanges, waits for application acknowledgment, bounds
+fragment assembly and timeouts, and disconnects after each operation. The 15 KiB
+message cap is an integration resource limit, not a measured BLE firmware limit.
+
+The production client independently read firmware/state/settings, wrote power
+and red RGBW at brightness 64, and replayed an app-generated architectural design
+larger than 1 KiB. The design's fields matched readback except that firmware
+removed `preview: false`. The original state was restored over Bluetooth and
+verified exactly through independent HTTP reads after every probe.
+
+A two-color pattern with an eight-byte name and one with a 31-byte name were
+accepted with exact readback. A tested 32-byte name returned `30 e1` (status 225).
+A 40-color palette returned success but was reported as a single color; its exact
+palette-size boundary has not been measured. Do not infer physical rendering or
+lossless storage from a positive acknowledgment. A definite negative
+acknowledgment fails the action without marking the device disconnected or
+resending via the cloud. Invalid responses and transport failures remain errors.
+
+A daytime doorbell frame showed only weak roofline light visibility, so it does
+not establish precise color or per-pixel rendering for these Bluetooth probes.
+The controller's WAN connection was not blocked during physical replay; command
+traffic itself used the local BLE connection without a cloud credential exchange.

@@ -23,7 +23,8 @@ Bluetooth controller-state reads and writes are now verified; see
 [the captured protocol](BLUETOOTH_PROTOCOL.md). Bluetooth timer operations are also present. Native zone
 creation, playlists, provisioning, settings writes, and firmware updates remain
 unverified. All live lighting tests restored and read back the exact original
-controller state. No production integration code changed in this research step.
+controller state. The initial music investigation changed no production code; the subsequent
+Bluetooth implementation now provides optional controller-state transport.
 
 ## App identity and reproducibility
 
