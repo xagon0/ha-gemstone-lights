@@ -27,7 +27,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
-from .bluetooth_api import GemstoneBluetoothApi
+from .bluetooth_api import GemstoneBluetoothApi, GemstoneBluetoothCommandError
 from .catalog import LocalCatalog
 from .commands import serialized
 from .const import (
@@ -741,6 +741,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._publish_command(device_id, state, local_state)
                 await self._async_save_cache()
                 return
+            except GemstoneBluetoothCommandError as err:
+                # An application rejection proves connectivity; do not replay via cloud.
+                raise GemstoneError(str(err)) from err
             except GemstoneLocalError as err:
                 _LOGGER.warning(
                     "Gemstone %s: local command failed (%s)",

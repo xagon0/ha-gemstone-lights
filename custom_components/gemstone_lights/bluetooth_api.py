@@ -27,6 +27,10 @@ _OPERATION_TIMEOUT = 40
 _MODES = ("colorB", "pattern", "architectural", "impulse", "playlist")
 
 
+class GemstoneBluetoothCommandError(GemstoneLocalError):
+    """A command was invalid or explicitly rejected; connectivity is still valid."""
+
+
 class GemstoneBluetoothApi:
     """Use HA's selected BLE device, releasing its connection after each request.
 
@@ -49,7 +53,9 @@ class GemstoneBluetoothApi:
 
     async def _exchange(self, command: Command, payload: bytes | None = None) -> bytes:
         if payload is not None and (not payload or len(payload) > MAX_MESSAGE_BYTES):
-            raise GemstoneLocalError("Bluetooth message exceeds the integration limit")
+            raise GemstoneBluetoothCommandError(
+                "Bluetooth message exceeds the integration limit"
+            )
         async with self._lock:
             final_write_started = False
             device = self._get_device()
@@ -74,6 +80,13 @@ class GemstoneBluetoothApi:
                     if command == Command.WRITE_STATE:
                         if not final_write_started:
                             raise ValueError("Premature Bluetooth write acknowledgment")
+                        if len(data) == 2 and data[1] != 1:
+                            response.set_exception(
+                                GemstoneBluetoothCommandError(
+                                    f"Controller rejected Bluetooth state (status {data[1]})"
+                                )
+                            )
+                            return
                         if bytes(data) != bytes((Command.WRITE_STATE, 1)):
                             raise ValueError(
                                 "Controller rejected the Bluetooth state write "
@@ -192,7 +205,9 @@ class GemstoneBluetoothApi:
                 allow_nan=False,
             ).encode("utf-8")
         except (ValueError, TypeError) as err:
-            raise GemstoneLocalError("Invalid Bluetooth command state") from err
+            raise GemstoneBluetoothCommandError(
+                "Invalid Bluetooth command state"
+            ) from err
         await self._exchange(Command.WRITE_STATE, encoded)
 
     async def async_set_power(self, on: bool) -> None:

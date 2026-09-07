@@ -138,3 +138,28 @@ async def test_bluetooth_setup_rejects_unusable_state(
     assert result["errors"] == {"base": "cannot_connect_bluetooth"}
     assert not hass.states.async_entity_ids("light")
     assert peripheral.active == 0
+
+
+async def test_rejected_bluetooth_command_keeps_connection_available_without_cloud_replay(
+    hass, entry, loaded_entry, peripheral, http
+):
+    # Given a cloud-capable entry using Bluetooth whose controller rejects writes.
+    from custom_components.gemstone_lights.api import GemstoneError
+
+    flow = await hass.config_entries.options.async_init(entry.entry_id)
+    await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"bluetooth_address": ADDRESS, "local_only": False}
+    )
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    before = dict(coordinator.device_state("hub"))
+    peripheral.status = b"\x30\xe1"
+    http.requests.clear()
+    # When a power command receives the real firmware's negative acknowledgment.
+    with pytest.raises(GemstoneError, match="status 225"):
+        await coordinator.async_set_power("hub", False)
+    # Then the requested state is not published or replayed and the controller stays local.
+    assert coordinator.device_state("hub") == before
+    assert coordinator.control_transport("hub") == "bluetooth"
+    assert http.requests == {}
+    assert peripheral.active == 0
