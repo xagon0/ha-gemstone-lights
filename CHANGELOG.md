@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.7.0 — 2026-09-06
+
+- Add optional account-free Bluetooth setup and an address override for existing
+  controllers, preserving entity IDs, zones and cached catalogs when switching.
+- Implement verified Hub2 firmware, playing-state and settings reads plus desired
+  state writes, with MTU-aware fragmentation and application acknowledgments.
+- Use HA's connectable Bluetooth adapters/proxies and release connections after
+  each operation. Keep strict local-only operation available without credentials.
+- Surface explicit controller rejection without cloud replay or false disconnect.
+- Add 27 Bluetooth transport and HA behavior tests covering malformed/incomplete
+  replies, rejection, timeouts, disconnects, concurrency and transport migration.
+- Document physical firmware 1.1.5 validation, content normalization limits and
+  captured music packets. Music playback, native timer editing, protected firmware
+  and factory-new provisioning remain unresolved.
+
 ## 1.6.0 — 2026-09-06
 
 - Add account-free setup by LAN address and an explicit option that disables all
