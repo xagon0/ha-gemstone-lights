@@ -16,14 +16,14 @@ from unresolved controller features.
 | Static architectural designs and repeating palettes | Direct explicit-pixel LAN designs | 15 KiB controller packet limit. |
 | Existing animated zones | Native `zonePatterns` on verified firmware 1.1.5 | Requires the original controller zone IDs and unchanged ranges cached in the integration. Other firmware remains unverified. |
 | Create/edit static zones | HA local catalog and dynamic light entities | Inclusive pixel indices 0–4095; overlapping ranges are rejected. |
-| Create/resize native animated zones | Unresolved | Sending a new zone ID with `lights` does not create a native zone. HA reports this limitation instead of sending a non-rendering design. |
+| Create/resize native animated zones | Not implemented in HA | Separate BLE native-zone creation/deletion is now verified. Geometry decoding and editor validation remain; a new ID in a playback design alone does not register a zone. |
 | Create/edit/save patterns and designs | Local actions and existing selects | Local names override imported vendor names; nothing is uploaded. |
 | Pattern folders | Local pattern folder labels and imported library folders | No standalone visual folder editor or cloud synchronization. |
 | Downloaded official library | Persisted local library, portable import/export | New vendor content must be downloaded or transferred before disconnecting. |
 | Playlists | Included HA script blueprint | HA advances the sequence. Stop the script before manual control; HA restart stops playback advancement. No native playlist CRUD/upload protocol verified. |
 | Weekly schedules | Included HA Schedule-helper automation blueprint | HA must run; reconciles the schedule at HA startup. |
 | Sunrise/sunset | Included local Sun automation blueprint | Uses HA's configured location and clock. HA must run. |
-| Existing controller timers | Vendor documents offline operation | Native timer read/create/edit/delete endpoints remain unverified. HA blueprints do not edit these timers. |
+| Existing controller timers | Vendor documents offline operation | BLE count, creation and deletion now verified; timer detail reads and execution semantics remain unresolved. No HA native-timer editor is implemented; blueprints do not edit these timers. |
 | Holiday/seasonal automation | HA local calendars, date conditions, scripts and locally stored patterns | Vendor Autopilot subscriptions and automatic new-content delivery are not replicated. |
 | Groups and scenes | HA light groups/scenes and multi-entity action targets | Commands are independent; no frame-accurate multi-controller synchronization. |
 | Music sync | Unresolved | App captures establish eight audio levels over UDP 1902. Tested controller rejects that port; physical playback and cloud-free initialization remain unverified. No music sender or audio capture engine is implemented. |
@@ -183,6 +183,11 @@ app before making HA the schedule owner. These HA schedules are not installed
 on the controller and cannot run while HA is shut down.
 
 ## Evidence and next protocol investigations
+
+The [native management investigation](MANAGEMENT_PROTOCOL.md) verifies Bluetooth
+zone inventory and creation/deletion, timer inventory and creation/deletion, and
+Wi-Fi signal reads. It also identifies additional existing LAN diagnostics and
+the geometry-decoding work required before native editing ships in HA.
 
 The [Android app investigation](APK_PROTOCOL_RESEARCH.md) records captured music
 packet framing and timing, unsuccessful physical playback with both the vendor

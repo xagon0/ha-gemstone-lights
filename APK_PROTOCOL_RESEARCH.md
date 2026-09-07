@@ -203,6 +203,12 @@ camera frames, app artifacts and emulator credentials remain outside the repo.
 
 ## Next capture session
 
+**Update:** the [native management investigation](MANAGEMENT_PROTOCOL.md) has now
+verified zone inventory and native creation/deletion, timer count and native
+creation/deletion, plus Wi-Fi RSSI. Timer detail reads, clock semantics and complete
+zone geometry decoding remain open. The earlier list below is the starting plan;
+consult that report for completed work and current limits.
+
 Use the running **Hub2** app, preferably in the owner's Android emulator. A
 connected Android phone is also useful. Record package version, active Shorebird
 patch, controller firmware, and whether the app is using Wi-Fi or Bluetooth.

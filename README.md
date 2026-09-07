@@ -101,8 +101,9 @@ Verified on Hub2 firmware 1.1.5:
 | Playlists and schedules | Included HA blueprints; HA must remain running |
 | Firmware and output settings | Read only |
 
-New native animated-zone definitions, firmware updates, music sync and first-time
-controller provisioning remain unresolved. Full details and evidence are in
+Native zone/timer management is not yet exposed in HA; newly verified commands
+and remaining work are documented in [Native management](MANAGEMENT_PROTOCOL.md).
+Firmware updates, music sync and first-time controller provisioning remain unresolved. Full details and evidence are in
 [Local operation](LOCAL_OPERATION.md). The earlier claim that Hub2 cannot render
 `zonePatterns` locally was disproved by direct LAN and camera tests.
 
