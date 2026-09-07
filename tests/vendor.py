@@ -15,8 +15,8 @@ class Vendor:
         self.states = {"hub": {"onState": True, "color": 255}}
         self.zones = {
             "hub": [
-                {"id": "front", "name": "Front", "lights": [3, 10, 12]},
-                {"id": "back", "name": "Back", "lights": [3, 13, 15]},
+                {"id": "front", "name": "Front", "lights": [10, 11, 12]},
+                {"id": "back", "name": "Back", "lights": [13, 14, 15]},
             ]
         }
         self.designs = []

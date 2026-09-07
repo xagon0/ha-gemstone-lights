@@ -10,6 +10,7 @@ from copy import deepcopy
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import ANIMATIONS, DEFAULT_SPEED, EFFECT_SOLID
+from .geometry import decode_lights, explicit_pixels, legacy_local_pixels
 from .validation import validate_design, validate_pattern
 
 
@@ -51,7 +52,7 @@ def checked_content(kind: str, content: dict) -> dict:
                 raise ValueError(
                     "Zone start/end must be inclusive pixel indices from 0 to 4095"
                 )
-            value = {"lights": [end - start + 1, start, end]}
+            value = {"lights": list(range(start, end + 1))}
         else:
             raise ValueError("Unknown content kind")
         if kind in ("pattern", "design"):
@@ -79,6 +80,7 @@ class LocalCatalog:
     def __init__(self, coordinator):
         self.coordinator = coordinator
         self.data = {
+            "zone_geometry_version": 2,
             "patterns": [],
             "designs": {},
             "zones": {},
@@ -93,6 +95,20 @@ class LocalCatalog:
             for key, default in self.data.items():
                 if isinstance(data.get(key), type(default)):
                     self.data[key] = deepcopy(data[key])
+            if data.get("zone_geometry_version", 1) == 1:
+                try:
+                    for zones in self.data["zones"].values():
+                        for zone in zones:
+                            zone["lights"] = list(
+                                legacy_local_pixels(zone.get("lights"))
+                            )
+                except (ValueError, TypeError, AttributeError) as err:
+                    raise HomeAssistantError(
+                        "Cannot restore legacy local zone geometry"
+                    ) from err
+            elif data.get("zone_geometry_version") != 2:
+                raise HomeAssistantError("Unsupported local zone geometry version")
+            self.data["zone_geometry_version"] = 2
 
     def entries(self, kind, device_id):
         """Get entries in the appropriate account or controller scope."""
@@ -113,7 +129,7 @@ class LocalCatalog:
             ),
         ]
 
-    def _save(self, device_id, kind, name, content, folder=""):
+    def _save(self, device_id, kind, name, content, folder="", *, pixels=None):
         if not isinstance(name, str):
             raise HomeAssistantError("Content name must be text")
         name = name.strip()
@@ -121,7 +137,11 @@ class LocalCatalog:
             raise HomeAssistantError(
                 "Choose a content name from 1 to 128 characters other than None"
             )
-        value = checked_content(kind, content)
+        value = (
+            {"lights": list(explicit_pixels(list(pixels)))}
+            if kind == "zone" and pixels is not None
+            else checked_content(kind, content)
+        )
         entries = self.entries(kind, device_id)
         previous = next(
             (item for item in entries if item["name"].casefold() == name.casefold()),
@@ -129,13 +149,18 @@ class LocalCatalog:
         )
         previous_id = (previous.get("data", previous) if previous else {}).get("id")
         if kind == "zone":
-            start, end = value["lights"][-2:]
+            selected = set(value["lights"])
             for zone in self.coordinator.zones(device_id):
                 if zone["name"].casefold() == name.casefold():
                     previous_id = zone["id"]
                     continue
-                lights = zone.get("lights", [])
-                if len(lights) >= 3 and max(start, lights[-2]) <= min(end, lights[-1]):
+                try:
+                    occupied = decode_lights(zone.get("lights"))
+                except ValueError as err:
+                    raise HomeAssistantError(
+                        f"Cannot determine pixel layout for {zone['name']}"
+                    ) from err
+                if selected.intersection(occupied):
                     raise HomeAssistantError(f"Zone overlaps {zone['name']}")
         value.update(
             id=previous_id
@@ -181,12 +206,21 @@ class LocalCatalog:
 
     def export(self, device_id):
         """Export usable content without device addresses or account credentials."""
+        try:
+            zones = [
+                {**zone, "lights": list(decode_lights(zone.get("lights")))}
+                for zone in self.coordinator.zones(device_id)
+            ]
+        except ValueError as err:
+            raise HomeAssistantError(
+                "Cannot export an invalid zone pixel layout"
+            ) from err
         return deepcopy(
             {
-                "version": 1,
+                "version": 2,
                 "patterns": self.coordinator.patterns(),
                 "designs": self.coordinator.designs(device_id),
-                "zones": self.coordinator.zones(device_id),
+                "zones": zones,
                 "library": self.coordinator._library,
                 "library_folders": self.coordinator._library_folders,
             }
@@ -194,8 +228,12 @@ class LocalCatalog:
 
     async def import_data(self, device_id, catalog):
         """Validate an entire portable catalog before committing any of it."""
-        if not isinstance(catalog, dict) or catalog.get("version") != 1:
-            raise HomeAssistantError("Expected an exported version 1 catalog")
+        if (
+            not isinstance(catalog, dict)
+            or type(catalog.get("version")) is not int
+            or catalog["version"] not in (1, 2)
+        ):
+            raise HomeAssistantError("Expected an exported version 1 or 2 catalog")
         async with self.lock:
             previous = deepcopy(self.data)
             library = deepcopy(catalog.get("library", {}))
@@ -210,17 +248,33 @@ class LocalCatalog:
                 for kind in ("zone", "pattern", "design"):
                     for item in catalog.get(f"{kind}s", []):
                         content = item["data"] if kind == "pattern" else item
+                        pixels = None
                         if kind == "zone":
-                            content = {
-                                "start": item["lights"][-2],
-                                "end": item["lights"][-1],
-                            }
+                            lights = item.get("lights")
+                            if catalog["version"] == 2:
+                                pixels = explicit_pixels(lights)
+                            elif str(item.get("id", "")).startswith("ha:"):
+                                pixels = legacy_local_pixels(lights)
+                            else:
+                                # Old exports mixed native selections with unmarked
+                                # local count/start/end triples. Never guess when
+                                # those could describe two different pixel sets.
+                                try:
+                                    legacy = legacy_local_pixels(lights)
+                                except ValueError:
+                                    legacy = None
+                                pixels = decode_lights(lights)
+                                if legacy is not None and legacy != pixels:
+                                    raise ValueError(
+                                        "Ambiguous version 1 zone; re-export with the updated integration or use version 2 explicit indices"
+                                    )
                         self._save(
                             device_id,
                             kind,
                             item["name"],
                             content,
                             item.get("folder", ""),
+                            pixels=pixels,
                         )
                         # Keep zone references and content IDs portable within the exported design.
                         saved = self.entries(kind, device_id)[-1]
