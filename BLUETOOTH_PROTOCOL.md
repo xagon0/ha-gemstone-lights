@@ -130,3 +130,9 @@ controller but its state operation timed out; the earlier advertisement was abou
 -94 dBm. Range is a plausible cause, not a confirmed diagnosis. The saved LAN
 configuration was restored. Thus direct Mac BLE replay is physically verified,
 while this HA adapter path still needs successful validation with better coverage.
+
+
+The subsequent [native management investigation](MANAGEMENT_PROTOCOL.md) extends
+the verified protocol with zone inventory/creation/deletion, timer counts and
+creation/deletion, and Wi-Fi RSSI. These management operations are not exposed by
+the v1.7.0 HA integration.

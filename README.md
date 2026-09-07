@@ -39,6 +39,10 @@ editing, playlists, schedules, evidence and the remaining protocol gaps.
   address can be entered manually or imported from an account. Cloud fallback
   and downloads are disabled completely in local-only mode.
 
+Zone control preserves single-pixel and noncontiguous selections, including
+unselected gaps. Existing native animated zones must retain their complete
+controller-defined selection.
+
 Effects and colours are built on the fly, so you are not limited to patterns
 you saved in the app first.
 
@@ -101,8 +105,9 @@ Verified on Hub2 firmware 1.1.5:
 | Playlists and schedules | Included HA blueprints; HA must remain running |
 | Firmware and output settings | Read only |
 
-New native animated-zone definitions, firmware updates, music sync and first-time
-controller provisioning remain unresolved. Full details and evidence are in
+Native zone/timer management is not yet exposed in HA; newly verified commands
+and remaining work are documented in [Native management](MANAGEMENT_PROTOCOL.md).
+Firmware updates, music sync and first-time controller provisioning remain unresolved. Full details and evidence are in
 [Local operation](LOCAL_OPERATION.md). The earlier claim that Hub2 cannot render
 `zonePatterns` locally was disproved by direct LAN and camera tests.
 

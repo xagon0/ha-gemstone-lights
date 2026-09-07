@@ -48,6 +48,7 @@ from .const import (
     LOCAL_RETRY_BACKOFF,
     LOCAL_WRITE_GAP,
 )
+from .geometry import decode_lights
 from .local_api import GemstoneLocalApi, GemstoneLocalError
 from .state import encode_cloud_design, same_content, scale_color
 
@@ -847,15 +848,11 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else payload
         )
         if local_payload is None:
-            vendor_ranges = {
-                zone["id"]: tuple(zone["lights"][-2:])
-                for zone in self._zones.get(device_id, [])
-                if zone.get("id") and len(zone.get("lights", [])) >= 3
-            }
-            ranges = self.zone_ranges(device_id)
+            vendor_pixels = self._zone_pixels(self._zones.get(device_id, []))
+            pixels = self.zone_pixels(device_id)
             if any(
-                vendor_ranges.get(zone["zoneId"]) != ranges.get(zone["zoneId"])
-                or zone["zoneId"] not in vendor_ranges
+                vendor_pixels.get(zone["zoneId"]) != pixels.get(zone["zoneId"])
+                or zone["zoneId"] not in vendor_pixels
                 for zone in payload.get("zonePatterns", [])
             ):
                 raise HomeAssistantError(
@@ -1002,23 +999,30 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- zones ---------------------------------------------------------------
 
-    def zone_ranges(self, device_id: str) -> dict[str, tuple[int, int]]:
-        """Return each zone's inclusive pixel range, keyed by zone id.
-
-        The cloud describes a zone as ``lights: [n, start, end]``.
-        """
-        ranges: dict[str, tuple[int, int]] = {}
-        for zone in self.zones(device_id):
-            lights = zone.get("lights") or []
-            if not isinstance(lights, list) or not zone.get("id") or len(lights) < 3:
+    @staticmethod
+    def _zone_pixels(zones: list[dict[str, Any]]) -> dict[str, tuple[int, ...]]:
+        """Return only verified complete selections, never guessed bounds."""
+        result = {}
+        for zone in zones:
+            if not isinstance(zone.get("id"), str):
                 continue
             try:
-                start, end = int(lights[-2]), int(lights[-1])
-            except ValueError, TypeError:
+                result[zone["id"]] = decode_lights(zone.get("lights"))
+            except ValueError:
                 continue
-            if 0 <= start <= end < 65536:
-                ranges[zone["id"]] = (start, end)
-        return ranges
+        return result
+
+    def zone_pixels(self, device_id: str) -> dict[str, tuple[int, ...]]:
+        """Return each zone's ordered physical pixel selection."""
+        return self._zone_pixels(self.zones(device_id))
+
+    def zone_ranges(self, device_id: str) -> dict[str, tuple[int, int]]:
+        """Return bounds only for contiguous zones; never flatten a gapped zone."""
+        return {
+            zid: (pixels[0], pixels[-1])
+            for zid, pixels in self.zone_pixels(device_id).items()
+            if pixels == tuple(range(pixels[0], pixels[-1] + 1))
+        }
 
     def zone_states(self, device_id: str) -> dict[str, dict[str, Any]]:
         """Return what each zone is showing.
@@ -1067,13 +1071,13 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         result = {}
         brightness = design.get("brightness", 255)
-        for zone_id, (start, end) in self.zone_ranges(device_id).items():
+        for zone_id, pixels in self.zone_pixels(device_id).items():
             for entry in static:
                 lights = entry.get("lights") or []
                 if not lights or entry.get("color") in (None, 0):
                     continue
                 covered = set(lights)
-                if all(pixel in covered for pixel in range(start, end + 1)):
+                if all(pixel in covered for pixel in pixels):
                     result[zone_id] = {
                         "color": entry["color"],
                         "brightness": brightness,
@@ -1124,13 +1128,8 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return entries
         if static := design.get("staticColors"):
             mapped = self.zone_states(device_id)
-            ranges = self.zone_ranges(device_id)
-            represented = {
-                pixel
-                for zid in mapped
-                if zid in ranges
-                for pixel in range(ranges[zid][0], ranges[zid][1] + 1)
-            }
+            selections = self.zone_pixels(device_id)
+            represented = {pixel for zid in mapped for pixel in selections.get(zid, ())}
             lit = {
                 pixel
                 for item in static
@@ -1174,12 +1173,14 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, device_id: str, design: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Render static palettes locally or use verified firmware-native animations."""
-        ranges = self.zone_ranges(device_id)
+        selections = self.zone_pixels(device_id)
         patterns = {
             entry["zoneId"]: entry["pattern"] for entry in design["zonePatterns"]
         }
-        if not patterns or not all(zid in ranges for zid in patterns):
-            return None
+        if not patterns or not all(zid in selections for zid in patterns):
+            raise HomeAssistantError(
+                "Cannot determine the complete pixel layout for these zones"
+            )
         if any(
             pattern.get("animation") not in (EFFECT_SOLID, "motionless")
             for pattern in patterns.values()
@@ -1188,13 +1189,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # over LAN. Zone IDs must already belong to the controller; HA-only
             # ranges cannot create firmware zone definitions through this API.
             firmware = str(self.settings(device_id).get("firmware") or "")
-            vendor_ranges = {
-                zone["id"]: tuple(zone["lights"][-2:])
-                for zone in self._zones.get(device_id, [])
-                if zone.get("id") and len(zone.get("lights", [])) >= 3
-            }
+            vendor_pixels = self._zone_pixels(self._zones.get(device_id, []))
             if firmware == "1.1.5" and all(
-                vendor_ranges.get(zid) == ranges[zid] for zid in patterns
+                vendor_pixels.get(zid) == selections[zid] for zid in patterns
             ):
                 return deepcopy(design)
             return None
@@ -1209,11 +1206,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ]
         for zid, pattern in patterns.items():
             colors = pattern.get("colors") or [0]
-            start, end = ranges[zid]
             groups: dict[int, list[int]] = {}
-            for pixel in range(start, end + 1):
+            for index, pixel in enumerate(selections[zid]):
                 color = scale_color(
-                    colors[(pixel - start) % len(colors)],
+                    colors[index % len(colors)],
                     round(
                         pattern.get("brightness", 255)
                         * design.get("brightness", 255)
