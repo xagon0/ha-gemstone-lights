@@ -125,8 +125,12 @@ the local item. A vendor item hidden by the same local name becomes visible agai
 patterns, designs, zone geometry and downloaded library content. In an automation,
 use `response_variable` to access it. Save that response as a local file or in a
 backup. `import_catalog` accepts it in the `catalog` field; it validates the whole
-input before merging matching names. It contains no device addresses or account
-credentials. Importing content does not provision firmware zone definitions on
+input before merging matching names. Version 2 exports store explicit pixel
+selections, preserving gaps. Identifiable version 1 local ranges and unambiguous
+native records can still be imported. An ambiguous unmarked version 1 range is
+rejected; re-export from the updated integration rather than guessing its pixels.
+Older integration versions cannot import version 2 exports. The portable catalog
+contains no device addresses or account credentials. Importing content does not provision firmware zone definitions on
 another controller. Native animated-zone identity is preserved by a full HA
 backup of the original entry, not by this portable content import alone.
 

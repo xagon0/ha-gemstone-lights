@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.7.1 — 2026-09-06
+
+- Decode native zone selections as explicit pixels and compressed inclusive runs,
+  preserving single-pixel, short and noncontiguous layouts throughout rendering,
+  readback, neighboring-zone preservation and overlap validation.
+- Repeat static palettes across selected pixels without filling unselected gaps.
+- Compare complete native selections before animated playback; matching final
+  endpoints no longer hides a resized HA override. Reject unusable geometry
+  before either local or cloud commands can be sent.
+- Migrate older HA-created count/start/end catalog records while keeping zone IDs.
+  Portable catalog version 2 stores explicit selections and preserves gaps.
+  Identifiable version 1 local ranges remain importable; ambiguous unmarked old
+  exports are rejected with a re-export instruction rather than guessed.
+- Add 27 functional geometry and catalog regressions. Six control regressions
+  were confirmed to fail against the previous coordinator. The mixed compressed
+  format was independently checked in the offline vendor app.
+
+
 ## 1.7.0 — 2026-09-06
 
 - Add optional account-free Bluetooth setup and an address override for existing

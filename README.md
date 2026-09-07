@@ -39,6 +39,10 @@ editing, playlists, schedules, evidence and the remaining protocol gaps.
   address can be entered manually or imported from an account. Cloud fallback
   and downloads are disabled completely in local-only mode.
 
+Zone control preserves single-pixel and noncontiguous selections, including
+unselected gaps. Existing native animated zones must retain their complete
+controller-defined selection.
+
 Effects and colours are built on the fly, so you are not limited to patterns
 you saved in the app first.
 

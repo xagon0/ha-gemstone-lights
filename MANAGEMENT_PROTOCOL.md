@@ -2,15 +2,17 @@
 
 Investigated 2026-09-06 using Android app 0.6.64, provisioned Hub2 firmware 1.1.5
 (SPI 1.2.1, Wi-Fi 3.3.9) and the existing HA 2026.9.1 installation. These are
-original protocol observations, not a vendor specification. The production
-integration remains at 1.7.0: the management operations below are **not yet HA
-features**.
+original protocol observations, not a vendor specification. The
+investigation was conducted against integration 1.7.0. Version 1.7.1 fixes zone
+geometry in existing control workflows; the management operations below are
+**not HA features**. Controller scheduling and additional diagnostic sensors
+are not being added as part of that reliability fix.
 
 ## Findings that change the implementation options
 
 | Capability | Evidence | Practical opportunity and limit |
 | --- | --- | --- |
-| Native zone inventory | Physical zone-count and paginated zone-detail reads returned all four existing zones, including IDs, names, icons, update timestamps and geometry. | Account-free zone discovery is possible over BLE. Mixed explicit/compressed geometry needs a proper decoder. |
+| Native zone inventory | Physical zone-count and paginated zone-detail reads returned all four existing zones, including IDs, names, icons, update timestamps and geometry. | Account-free zone discovery is possible over BLE. Version 1.7.1 decodes mixed explicit/compressed geometry; native inventory synchronization is not implemented. |
 | Native zone creation/deletion | An app-captured `setZone` command created one temporary two-pixel zone; `deleteZone` removed it. Inventory changed 4 → 5 → 4, with every original record unchanged. | HA could register native zone IDs before playing animated designs. This test did not establish physical animation rendering on the new zone. |
 | Native timer creation/deletion | App-captured `setTimer` created a temporary future timer; `deleteTimer` removed it. Inventory changed 0 → 1 → 0. `setTimerEnabled: false` received success acknowledgment. | Native schedule management is possible over BLE. Timer detail reads, enabled-state readback, execution timing, DST and solar behavior remain unverified. |
 | LAN management through the playback route | Posting the timer management envelope to the existing `/device-control/play` route returned HTTP 400 and left the timer inventory empty. | The playback endpoint cannot simply be reused for this payload. This does not prove that no other LAN management route exists. |
@@ -109,18 +111,24 @@ app; this latter zone was not sent to the physical controller.
 
 Existing longer zones use a compressed representation. A native record with
 `[0,0,102]` opens in the app editor with intermediate pixels selected (the first
-25 were visible), rather than only indices 0 and 102. The app binary also contains `LightsCompressor` and
-`lights_compressor.dart`. The complete compression grammar and encoding threshold
-have not been established; do not extrapolate an arbitrary decoder solely from
-these samples.
+25 were visible), rather than only indices 0 and 102. The app binary also contains
+`LightsCompressor` and `lights_compressor.dart`. A subsequent isolated-app check
+supplied `[0,0,3,5,5,8,10]`. The editor selected
+indices 0–3, 5–8 and 10, leaving 4 and 9 clear. This confirms repeated-start
+`[start,start,end]` inclusive range markers interspersed with literal indices.
+The new decoder bounds expansion and rejects malformed markers, duplicates and
+invalid indices. The integration exports explicit indices rather than attempting
+to reproduce the vendor encoder's compression threshold.
 
-The current coordinator's `zone_ranges` method requires at least three elements
-and uses only the final two as start/end. It would skip the verified two-pixel
-zone, and would treat `[0,1,2,4,5,6]` as only pixels 5–6. Before native discovery or
-editing ships, replace that assumption with verified pixel-set decoding, preserve
-gaps, and decide how HA's existing contiguous-zone editing interface represents
-those sets. Include behavior tests for both short literal selections and mixed
-ranges. The owner's four existing contiguous zones were preserved in this probe.
+Before 1.7.1, the coordinator's `zone_ranges` method required at least three elements
+and used only the final two as start/end. It skipped the verified two-pixel
+zone, and would treat `[0,1,2,4,5,6]` as only pixels 5–6. Version 1.7.1 replaces that assumption with complete pixel
+selections for
+control, readback, native matching, overlap checks and portable catalogs. Its
+existing start/end editing action remains a contiguous-range interface; importing
+existing noncontiguous geometry preserves its pixels. Legacy local records are
+migrated separately because HA previously wrote a different count/start/end format.
+The owner's four existing contiguous zones were preserved in this probe.
 
 One isolated app save interleaved two multi-fragment state writes while previewing
 and saving a zone. The capture contained enough JSON to reconstruct the zone
@@ -151,8 +159,7 @@ network identifiers can be private; avoid indiscriminate raw-settings exports.
 - Timer detail reads: static app code names them, but the tested offline app did
   not request them after a simulated nonzero count. The feature/account-state
   gate is unresolved. No guessed timer-detail opcode was sent to the controller.
-- Native zone editing: creation/deletion is established, but complete geometry
-  decoding, resizing, state reconciliation and physical animated rendering need
+- Native zone editing: creation/deletion is established, but native resizing, state reconciliation and physical animated rendering need
   validation before an HA editor is released.
 - Clock/DST/solar behavior: a 20-byte `41` command was captured at app connection
   as in the previous investigation; it was not replayed or decoded. Merely opening
