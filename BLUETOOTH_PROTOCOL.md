@@ -123,3 +123,10 @@ A daytime doorbell frame showed only weak roofline light visibility, so it does
 not establish precise color or per-pixel rendering for these Bluetooth probes.
 The controller's WAN connection was not blocked during physical replay; command
 traffic itself used the local BLE connection without a cloud credential exchange.
+
+On the owner's HA 2026.9.1 installation, the new version loaded successfully and
+preserved existing entities. A temporary Bluetooth override reached a discovered
+controller but its state operation timed out; the earlier advertisement was about
+-94 dBm. Range is a plausible cause, not a confirmed diagnosis. The saved LAN
+configuration was restored. Thus direct Mac BLE replay is physically verified,
+while this HA adapter path still needs successful validation with better coverage.
