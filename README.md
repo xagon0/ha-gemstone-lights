@@ -6,7 +6,7 @@ A custom integration for [Gemstone Lights](https://www.gemstonelights.com/)
 permanent outdoor lighting, controlling the **Hub2** controller from Home
 Assistant.
 
-Control Hub2 directly over your LAN, with optional Gemstone account import and
+Control Hub2 directly over your LAN or optional Bluetooth, with optional Gemstone account import and
 cloud fallback. **Local-only mode needs no account and makes no Gemstone cloud
 requests.** See [Local operation](LOCAL_OPERATION.md) for offline setup, content
 editing, playlists, schedules, evidence and the remaining protocol gaps.
@@ -64,20 +64,26 @@ Copy `custom_components/gemstone_lights` into your Home Assistant
 
 - **Local controller**: enter a provisioned Hub2's address. Local commands must
   already be enabled. No Gemstone credentials are requested.
+- **Bluetooth controller**: enter a provisioned Hub2's Bluetooth address. Requires
+  a connectable HA adapter or active proxy in range; no account or controller Wi-Fi
+  is needed. Firmware 1.1.5 verified; protected firmware is unsupported.
 - **Import from a Gemstone account**: sign in to discover devices, zones and
   catalogs. Credentials are stored in the config entry for optional cloud access.
 
 For an existing entry, choose **Configure → Disable all Gemstone cloud access**
 to preserve its entities and cached content while switching to offline operation.
 Reserve the controller's DHCP address. The options form can override an address
-for the selected controller without changing entity IDs.
+for the selected controller without changing entity IDs. A Bluetooth address
+replaces LAN for that selected controller; clear it to return to LAN. Close the
+vendor app's Bluetooth connection before HA connects.
 
 ## Local control
 
 "Allow Local Commands" (Device Settings → Advanced Settings in the Gemstone app)
 opens the controller's HTTP port. Account mode can enable it through the cloud;
 local-only mode requires it to be enabled beforehand. The Now playing sensor's
-`control` attribute reports the selected path.
+`control` attribute reports `local` (LAN), `bluetooth`, or `cloud`. Bluetooth
+state control does not require the HTTP local-command switch.
 
 Known addresses, zones, patterns, designs and library content are persisted.
 Local-only mode restores them without logging in or refreshing cloud catalogs.

@@ -12,7 +12,7 @@ from unresolved controller features.
 
 | Capability | Offline implementation | Boundary / remaining work |
 | --- | --- | --- |
-| Power, RGBW, brightness, speed, whole-run effects | Direct LAN control | Controller must already permit local commands. |
+| Power, RGBW, brightness, speed, whole-run effects | Direct LAN or optional Bluetooth state control | LAN requires local commands enabled; Bluetooth requires a connectable HA adapter or proxy in range. |
 | Static architectural designs and repeating palettes | Direct explicit-pixel LAN designs | 15 KiB controller packet limit. |
 | Existing animated zones | Native `zonePatterns` on verified firmware 1.1.5 | Requires the original controller zone IDs and unchanged ranges cached in the integration. Other firmware remains unverified. |
 | Create/edit static zones | HA local catalog and dynamic light entities | Inclusive pixel indices 0–4095; overlapping ranges are rejected. |
@@ -26,14 +26,14 @@ from unresolved controller features.
 | Existing controller timers | Vendor documents offline operation | Native timer read/create/edit/delete endpoints remain unverified. HA blueprints do not edit these timers. |
 | Holiday/seasonal automation | HA local calendars, date conditions, scripts and locally stored patterns | Vendor Autopilot subscriptions and automatic new-content delivery are not replicated. |
 | Groups and scenes | HA light groups/scenes and multi-entity action targets | Commands are independent; no frame-accurate multi-controller synchronization. |
-| Music sync | Unresolved | Vendor describes phone microphone input. No verified audio/beat transport or local capture engine in this integration. |
+| Music sync | Unresolved | App captures establish eight audio levels over UDP 1902. Tested controller rejects that port; physical playback and cloud-free initialization remain unverified. No music sender or audio capture engine is implemented. |
 | Firmware, output counts, color order | Read locally from `hub-settings` | Writing output configuration, network settings, clock/location or firmware is not implemented. |
 | Account-free HA setup | Manual controller address | Existing provisioned Hub2 only. Reserve its DHCP address; this is not Bluetooth/Wi-Fi provisioning. |
-| Bluetooth / factory-new provisioning | Unresolved in this integration | Vendor app has local Bluetooth control; its pairing/GATT protocol has not been implemented here. |
+| Bluetooth state control | Optional HA Bluetooth transport: firmware/state/settings reads and desired-state writes | Verified on provisioned Hub2 firmware 1.1.5 without a password exchange. Factory-new provisioning and protected firmware remain unsupported. |
 | Firmware upgrades | Unresolved | No verified local update protocol or independently supplied firmware package. |
 | Multi-user access / backups | HA users and local HA backups | Vendor account services, remote cloud access and online sharing remain online services. |
 
-HA and the controller still need power and a working LAN. “Local-only” controls
+HA and the controller still need power and a working local transport (LAN or Bluetooth). “Local-only” controls
 this integration's outbound behavior; it does not change the controller's router
 firewall rules, prevent the vendor app from making requests, or disable other HA
 integrations. A working local clock matters for schedules after a power outage.
@@ -59,6 +59,34 @@ already installed or supplied offline. Initial HACS installation, dependency
 installation and downloading new releases are separate from offline operation.
 A full HA backup is the recommended recovery mechanism for existing controller
 identities and native-zone metadata.
+
+## Optional Bluetooth transport
+
+For an existing controller, open **Configure**, select the controller for address
+overrides, and enter its Bluetooth MAC address. Enable **Disable all Gemstone
+cloud access** for strict offline operation. Existing entities, zones and cached
+content remain intact. Clear the Bluetooth address to return to LAN; LAN still
+requires **Allow Local Commands** and a reachable address.
+
+For account-free setup choose **Bluetooth controller (no account or Wi-Fi)**.
+Find the controller's address in HA's Bluetooth advertisement monitor. This
+integration does not auto-identify controllers from advertisements. HA needs a
+connectable Bluetooth adapter or active proxy within reliable range. Close the
+Gemstone app's Bluetooth connection before using HA. Each operation connects,
+exchanges commands and releases the connection; Bluetooth polling is slower than
+LAN and occupies an adapter/proxy connection slot while active.
+
+Bluetooth uses the same lighting entities and locally stored content. It does
+not create native zones, provision Wi-Fi, edit timers or flash firmware. Read and
+write behavior was verified on firmware 1.1.5; password-protected firmware is not
+supported. The integration does not request cloud Bluetooth credentials.
+
+Firmware can reject or normalize custom content: a 31-byte pattern name worked,
+a tested 32-byte name was rejected, and a 40-color pattern was acknowledged but
+reported as one color. Use short names and verify custom palettes on the lights;
+acknowledgment is not proof of exact rendering. State polling reports the actual
+controller state. Explicit rejection is surfaced without a cloud replay.
+See [Bluetooth protocol and live evidence](BLUETOOTH_PROTOCOL.md).
 
 ## Local editing and backups
 
@@ -156,6 +184,12 @@ on the controller and cannot run while HA is shut down.
 
 ## Evidence and next protocol investigations
 
+The [Android app investigation](APK_PROTOCOL_RESEARCH.md) records captured music
+packet framing and timing, unsuccessful physical playback with both the vendor
+app and an independent sender, the UDP port refusal, static Bluetooth timer
+evidence, and the Shorebird decoder limitation.
+These findings do not change the implemented capability boundaries above.
+
 Direct LAN tests sent new design IDs with an existing lower zone running a green
 chase and an existing upper zone set blue. Hub2 returned the nested animation,
 palette and brightness fields intact. Two doorbell camera frames showed the
@@ -175,15 +209,16 @@ encrypted; it was not decrypted. Read-only guesses for `/device-state/zones`,
 404. Those results do not prove that no management protocol exists.
 
 Next evidence needed for the unresolved rows: capture the owner's app traffic
-while creating a zone/timer/playlist and changing settings; identify the official
-Bluetooth GATT services and framing; determine whether management uses local HTTP,
+while creating a zone/timer/playlist and changing settings; extend the verified
+Bluetooth GATT state protocol to management operations; determine whether those use local HTTP,
 Bluetooth or cloud-to-device messages; replay only verified reversible requests.
 Firmware work additionally needs a legitimate firmware package, a documented
-update handshake and a recovery path. Music sync needs capture of the phone's
-beat/event stream and timing behavior. None of these gaps is solved by repeatedly
+update handshake and a recovery path. Music sync needs its receiving port and
+initialization resolved, followed by verified physical playback with WAN blocked.
+None of these gaps is solved by repeatedly
 posting unknown JSON fields to the playback endpoint.
 
-Automated tests run the actual integration logic with external HTTP substituted,
+Automated tests run the actual integration logic with external HTTP and Bluetooth I/O substituted,
 including credential-free setup, zero cloud URLs, LAN failure/recovery, cache
 migration, catalog persistence, atomic import, native payload routing, and the
 shipped HA script/automation engines. The physical controller's WAN isolation

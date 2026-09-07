@@ -15,6 +15,7 @@ from homeassistant.helpers.storage import Store
 
 from .api import GemstoneApi
 from .const import (
+    CONF_BLUETOOTH_ADDRESS,
     CONF_EMAIL,
     CONF_ENABLE_LIBRARY,
     CONF_ENABLE_LOCAL,
@@ -75,6 +76,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> 
         hass,
         entry,
         api,
+        bluetooth_address=entry.options.get(
+            CONF_BLUETOOTH_ADDRESS, entry.data.get(CONF_BLUETOOTH_ADDRESS)
+        ),
         host_override=entry.options.get(CONF_HOST) or entry.data.get(CONF_HOST),
         host_device_id=entry.options.get(CONF_HOST_DEVICE)
         or (entry.data.get(CONF_LOCAL_DEVICE) or {}).get("id"),

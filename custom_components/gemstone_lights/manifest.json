@@ -5,6 +5,9 @@
     "@xagon0"
   ],
   "config_flow": true,
+  "dependencies": [
+    "bluetooth_adapters"
+  ],
   "documentation": "https://github.com/xagon0/ha-gemstone-lights",
   "integration_type": "hub",
   "iot_class": "local_polling",
@@ -12,5 +15,5 @@
   "requirements": [
     "pycognito==2024.5.1"
   ],
-  "version": "1.6.0"
+  "version": "1.7.0"
 }

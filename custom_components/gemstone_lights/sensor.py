@@ -71,9 +71,7 @@ class GemstoneNowPlaying(GemstoneEntity, SensorEntity):
             "design": (state.get("architectural") or {}).get("name"),
             "pattern": (state.get("pattern") or {}).get("name"),
             "color": color,
-            "control": "local"
-            if self.coordinator.is_local(self._device_id)
-            else "cloud",
+            "control": self.coordinator.control_transport(self._device_id),
             "local_ip": self.coordinator.local_host(self._device_id)
             or hub.get("localIp"),
             "firmware": settings.get("firmware") or info.get("firmware"),

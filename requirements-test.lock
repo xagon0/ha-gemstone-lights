@@ -36,6 +36,8 @@ aioresponses==0.7.9
     # via -r requirements-test.txt
 aiosignal==1.4.0
     # via aiohttp
+aiousbwatcher==1.1.2
+    # via -r requirements-test.txt
 aiozoneinfo==0.2.3
     # via homeassistant
 annotated-types==0.8.0
@@ -50,6 +52,8 @@ async-interrupt==1.2.2
     # via
     #   habluetooth
     #   homeassistant
+asyncinotify==4.4.4
+    # via aiousbwatcher
 atomicwrites-homeassistant==1.4.1
     # via
     #   hass-nabucasa
@@ -350,6 +354,8 @@ python-slugify==8.0.4
     # via homeassistant
 pytz==2026.3.post1
     # via astral
+pywin32==312 ; sys_platform == 'win32'
+    # via serialx
 pyyaml==6.0.3
     # via
     #   annotatedyaml
@@ -377,6 +383,8 @@ securetar==2026.4.1
     # via homeassistant
 sentence-stream==1.3.0
     # via hass-nabucasa
+serialx==1.10.0
+    # via -r requirements-test.txt
 six==1.17.0
     # via python-dateutil
 snitun==0.47.0
@@ -406,6 +414,7 @@ typing-extensions==4.16.0
     #   pydantic
     #   pydantic-core
     #   pygithub
+    #   serialx
     #   sqlalchemy
     #   typing-inspection
     #   winrt-runtime

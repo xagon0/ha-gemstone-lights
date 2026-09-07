@@ -181,9 +181,7 @@ class GemstoneLight(_GemstoneBaseLight):
         return {
             "playing_design": design.get("name"),
             "speed": self.coordinator.speed(self._device_id),
-            "control": "local"
-            if self.coordinator.is_local(self._device_id)
-            else "cloud",
+            "control": self.coordinator.control_transport(self._device_id),
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:

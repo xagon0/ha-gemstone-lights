@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from time import monotonic
 from typing import Any
 
+from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
@@ -26,6 +27,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
+from .bluetooth_api import GemstoneBluetoothApi, GemstoneBluetoothCommandError
 from .catalog import LocalCatalog
 from .commands import serialized
 from .const import (
@@ -62,6 +64,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entry: ConfigEntry,
         api: GemstoneApi | None,
         *,
+        bluetooth_address: str | None = None,
         host_override: str | None = None,
         host_device_id: str | None = None,
         prefer_local: bool = True,
@@ -78,9 +81,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.api = api
         self.catalog = LocalCatalog(self)
+        self._bluetooth_address = bluetooth_address
         self._host_override = host_override
         self._host_device_id = host_device_id
-        self._prefer_local = prefer_local or api is None
+        self._prefer_local = prefer_local or api is None or bool(bluetooth_address)
         self._enable_local = enable_local and api is not None
         self._enable_library = enable_library and api is not None
         self._enable_attempted: set[str] = set()
@@ -115,7 +119,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._state_aliases: dict[str, dict[str, Any]] = {}
         self._state_versions: dict[str, int] = {}
         self._refresh_cancel = None
-        self._local: dict[str, GemstoneLocalApi] = {}
+        self._local: dict[str, GemstoneLocalApi | GemstoneBluetoothApi] = {}
         self._local_ok: dict[str, bool] = {}
         # Don't retry a controller we can't reach on every single poll.
         self._local_retry_after: dict[str, datetime] = {}
@@ -303,20 +307,38 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._settings.get(device_id, {})
 
     def is_local(self, device_id: str) -> bool:
-        """Return True when this controller is being driven over the LAN."""
+        """Return True when this controller is being driven without cloud commands."""
         return bool(self._local_ok.get(device_id))
 
     def local_host(self, device_id: str) -> str | None:
         """Return the controller's local address, if known."""
         client = self._local.get(device_id)
-        return client.host if client else None
+        return client.host if isinstance(client, GemstoneLocalApi) else None
+
+    def bluetooth_address(self, device_id: str) -> str | None:
+        """Return the explicitly selected Bluetooth address for this controller."""
+        if self._host_device_id == device_id or (
+            not self._host_device_id and self._device_ids == [device_id]
+        ):
+            return self._bluetooth_address or None
+        return None
+
+    def control_transport(self, device_id: str) -> str:
+        """Report the transport actually used for successful state reads."""
+        if not self.is_local(device_id):
+            return "cloud"
+        return (
+            "bluetooth"
+            if isinstance(self._local.get(device_id), GemstoneBluetoothApi)
+            else "local"
+        )
 
     # -- transport ----------------------------------------------------------
 
     def _local_client(
         self, device_id: str, info: dict[str, Any]
-    ) -> GemstoneLocalApi | None:
-        """Return the LAN client for a controller, if local control applies.
+    ) -> GemstoneLocalApi | GemstoneBluetoothApi | None:
+        """Return the selected Bluetooth or LAN client when local control applies.
 
         The address comes from the controller's own cloud record, so nothing
         has to be configured by hand. The record also says whether "Allow
@@ -324,6 +346,25 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         if not self._prefer_local:
             return None
+
+        retry_after = self._local_retry_after.get(device_id)
+        if self.api is not None and retry_after and dt_util.utcnow() < retry_after:
+            return None
+        if address := self.bluetooth_address(device_id):
+            existing = self._local.get(device_id)
+            if (
+                isinstance(existing, GemstoneBluetoothApi)
+                and existing.address == address
+            ):
+                return existing
+            client = GemstoneBluetoothApi(
+                address,
+                lambda: async_ble_device_from_address(
+                    self.hass, address, connectable=True
+                ),
+            )
+            self._local[device_id] = client
+            return client
 
         hub = info.get("hub") or {}
         override = (
@@ -363,11 +404,6 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     device_id,
                 )
             self._local_ok[device_id] = False
-            return None
-
-        # Back off after a failure rather than stalling every poll.
-        retry_after = self._local_retry_after.get(device_id)
-        if self.api is not None and retry_after and dt_util.utcnow() < retry_after:
             return None
 
         existing = self._local.get(device_id)
@@ -705,6 +741,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._publish_command(device_id, state, local_state)
                 await self._async_save_cache()
                 return
+            except GemstoneBluetoothCommandError as err:
+                # An application rejection proves connectivity; do not replay via cloud.
+                raise GemstoneError(str(err)) from err
             except GemstoneLocalError as err:
                 _LOGGER.warning(
                     "Gemstone %s: local command failed (%s)",

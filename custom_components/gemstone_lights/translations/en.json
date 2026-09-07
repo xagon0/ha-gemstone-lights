@@ -5,7 +5,8 @@
         "title": "Gemstone Lights",
         "menu_options": {
           "local": "Local controller (no account or internet)",
-          "cloud": "Import from a Gemstone account"
+          "cloud": "Import from a Gemstone account",
+          "bluetooth": "Bluetooth controller (no account or Wi-Fi)"
         }
       },
       "reauth_confirm": {
@@ -30,6 +31,14 @@
           "host": "Controller IP address or hostname",
           "name": "Name"
         }
+      },
+      "bluetooth": {
+        "title": "Bluetooth controller",
+        "description": "Enter a provisioned Hub2 Bluetooth address visible to a connectable Home Assistant adapter or proxy. Close the Gemstone app during setup. Firmware 1.1.5 is verified; password-protected firmware and new-device provisioning are not supported. For a controller already in this integration, change its options to preserve entities and content.",
+        "data": {
+          "bluetooth_address": "Controller Bluetooth address",
+          "name": "Name (optional)"
+        }
       }
     },
     "error": {
@@ -37,7 +46,9 @@
       "cannot_connect": "Could not reach the Gemstone cloud.",
       "unknown": "Unexpected error. Check the Home Assistant log.",
       "invalid_host": "Enter an IPv4 address or hostname without a URL, port, or path.",
-      "cannot_connect_local": "Could not read this controller over LAN. Check its address and enable Allow Local Commands in the Gemstone app."
+      "cannot_connect_local": "Could not read this controller over LAN. Check its address and enable Allow Local Commands in the Gemstone app.",
+      "invalid_bluetooth_address": "Enter a Bluetooth address such as AA:BB:CC:DD:EE:FF.",
+      "cannot_connect_bluetooth": "Could not read the controller over Bluetooth. Check its address, adapter range and available connection slots, and disconnect the Gemstone app. Password-protected firmware is not supported."
     },
     "abort": {
       "already_configured": "This account or controller is already configured.",
@@ -74,21 +85,23 @@
     "step": {
       "init": {
         "title": "Local control",
-        "description": "Local-only mode keeps cached content and disables authentication, discovery, downloads and cloud fallback. Local setup entries always remain local-only. A controller must already allow local commands.",
+        "description": "Local-only mode keeps cached content and disables all Gemstone cloud access. Enter a Bluetooth address to use a connectable HA adapter or proxy for the selected controller; clear it to return to LAN. LAN requires Allow Local Commands. Bluetooth releases its connection after each operation.",
         "data": {
           "prefer_local": "Use local control when available",
           "host": "Controller IP address (optional)",
           "enable_local": "Switch on local control on the controller if it is off",
           "enable_library": "Load Gemstone's official pattern library",
-          "host_device_id": "Controller for the address override",
-          "local_only": "Disable all Gemstone cloud access"
+          "host_device_id": "Controller for address overrides",
+          "local_only": "Disable all Gemstone cloud access",
+          "bluetooth_address": "Bluetooth address (optional; replaces LAN for the selected controller)"
         }
       }
     },
     "error": {
       "invalid_host": "Enter an IPv4 address or hostname without a URL, port, or path.",
       "select_controller": "Select the controller this address belongs to.",
-      "missing_local_address": "Every controller needs a known LAN address before cloud access can be disabled."
+      "missing_local_address": "Every controller needs a known LAN or configured Bluetooth address before cloud access can be disabled.",
+      "invalid_bluetooth_address": "Enter a Bluetooth address such as AA:BB:CC:DD:EE:FF."
     }
   },
   "services": {
@@ -120,7 +133,7 @@
         },
         "content": {
           "name": "Content",
-          "description": "Pattern/design object, or a zone object with inclusive start and end pixel indices (0\u20134095)."
+          "description": "Pattern/design object, or a zone object with inclusive start and end pixel indices (0–4095)."
         },
         "folder": {
           "name": "Folder",

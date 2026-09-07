@@ -149,3 +149,38 @@ async def loaded_entry(
     yield entry.runtime_data
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+@pytest.fixture
+def peripheral(monkeypatch):
+    """Replace only Bluetooth discovery and the external GATT connection."""
+    from custom_components.gemstone_lights import bluetooth_api
+
+    from .bluetooth_peer import Peripheral
+
+    peer = Peripheral()
+    monkeypatch.setattr(bluetooth_api, "establish_connection", peer.connect)
+
+    return peer
+
+
+@pytest.fixture
+def bluetooth_client(peripheral):
+    from custom_components.gemstone_lights.bluetooth_api import GemstoneBluetoothApi
+
+    from .bluetooth_peer import ADDRESS, DEVICE
+
+    return GemstoneBluetoothApi(ADDRESS, lambda: DEVICE)
+
+
+@pytest.fixture(autouse=True)
+def bluetooth_radio_environment(mock_bluetooth):
+    """Keep HA's real Bluetooth manager while replacing operating-system radio I/O."""
+    from unittest.mock import PropertyMock
+
+    with patch(
+        "bluetooth_adapters.systems.linux.LinuxAdapters.history",
+        new_callable=PropertyMock,
+        return_value={},
+    ):
+        yield
