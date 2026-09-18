@@ -6,7 +6,7 @@ is involved.
 
 Two details are easy to get wrong and are the reason this client exists:
 
-* All control (write) calls use HTTP ``PUT``. Using ``POST`` returns a
+* Lighting control (write) calls use HTTP ``PUT``. Using ``POST`` returns a
   confusing AWS SigV4 error that suggests the endpoint needs request signing.
 * Most endpoints expect ``deviceOrGroupId``; the architectural (per-zone)
   endpoints expect ``deviceId``.
@@ -401,6 +401,19 @@ class GemstoneApi:
             if len(batch) < page_size:
                 break
         return patterns
+
+    async def async_soft_reboot(self, device_id: str, homegroup_id: str) -> None:
+        """Request a soft reboot using the app's verified POST route.
+
+        An accepted request is not proof of controller recovery. Never replay
+        this non-idempotent request automatically, even after auth rejection.
+        """
+        await self._request(
+            "POST",
+            "/deviceControl/softReboot",
+            params={"deviceId": device_id, "homegroupId": homegroup_id},
+            _retry=False,
+        )
 
     async def async_set_local_enabled(self, device_id: str, enabled: bool) -> None:
         """Turn the controller's "Allow Local Commands" switch on or off.

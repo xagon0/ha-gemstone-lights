@@ -23,6 +23,7 @@ from homeassistant.helpers.selector import SelectSelector, SelectSelectorConfig
 from .api import GemstoneApi, GemstoneAuthError, GemstoneError
 from .bluetooth_api import GemstoneBluetoothApi
 from .const import (
+    CONF_AUTO_RECOVERY,
     CONF_BLUETOOTH_ADDRESS,
     CONF_EMAIL,
     CONF_ENABLE_LIBRARY,
@@ -33,6 +34,8 @@ from .const import (
     CONF_LOCAL_ONLY,
     CONF_PASSWORD,
     CONF_PREFER_LOCAL,
+    CONF_RECOVERY_COOLDOWN,
+    CONF_RECOVERY_DELAY,
     DOMAIN,
 )
 from .local_api import GemstoneLocalApi, GemstoneLocalError
@@ -47,6 +50,13 @@ STEP_USER_SCHEMA = vol.Schema(
 OPTIONS_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_LOCAL_ONLY, default=False): bool,
+        vol.Optional(CONF_AUTO_RECOVERY, default=False): bool,
+        vol.Optional(CONF_RECOVERY_DELAY, default=10): vol.All(
+            vol.Coerce(int), vol.Range(min=5, max=60)
+        ),
+        vol.Optional(CONF_RECOVERY_COOLDOWN, default=6): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=168)
+        ),
         vol.Optional(CONF_PREFER_LOCAL, default=True): bool,
         vol.Optional(CONF_ENABLE_LOCAL, default=True): bool,
         vol.Optional(CONF_ENABLE_LIBRARY, default=True): bool,
@@ -398,6 +408,9 @@ class GemstoneOptionsFlow(OptionsFlow):
             return self.async_create_entry(
                 data={
                     CONF_LOCAL_ONLY: local_only,
+                    CONF_AUTO_RECOVERY: user_input.get(CONF_AUTO_RECOVERY, False),
+                    CONF_RECOVERY_DELAY: user_input.get(CONF_RECOVERY_DELAY, 10),
+                    CONF_RECOVERY_COOLDOWN: user_input.get(CONF_RECOVERY_COOLDOWN, 6),
                     CONF_PREFER_LOCAL: local_only
                     or user_input.get(CONF_PREFER_LOCAL, True),
                     CONF_ENABLE_LOCAL: user_input.get(CONF_ENABLE_LOCAL, True),

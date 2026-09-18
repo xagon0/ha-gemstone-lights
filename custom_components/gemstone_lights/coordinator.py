@@ -50,6 +50,7 @@ from .const import (
 )
 from .geometry import decode_lights
 from .local_api import GemstoneLocalApi, GemstoneLocalError
+from .recovery import RecoveryPolicy
 from .state import encode_cloud_design, same_content, scale_color
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +72,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         prefer_local: bool = True,
         enable_local: bool = True,
         enable_library: bool = True,
+        auto_recovery: bool = False,
+        recovery_delay_minutes: int = 10,
+        recovery_cooldown_hours: int = 6,
     ) -> None:
         """Initialise the coordinator."""
         super().__init__(
@@ -81,6 +85,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
         )
         self.api = api
+        self.recovery = RecoveryPolicy()
+        self._auto_recovery = auto_recovery and api is not None
+        self._recovery_delay = max(5, recovery_delay_minutes) * 60
+        self._recovery_cooldown = max(1, recovery_cooldown_hours) * 3600
         self.catalog = LocalCatalog(self)
         self._bluetooth_address = bluetooth_address
         self._host_override = host_override
@@ -134,6 +142,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
             cached = {"devices": [self.config_entry.data[CONF_LOCAL_DEVICE]]}
         self.catalog.restore(cached.get("local_catalog"))
+        self.recovery.restore(cached.get("recovery"))
         devices = cached.get("devices", [])
         if not isinstance(devices, list) or any(
             not isinstance(d, dict) or not d.get("id") for d in devices
@@ -186,6 +195,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             {
                 "devices": devices,
                 "local_catalog": self.catalog.data,
+                "recovery": self.recovery.history,
                 "zones": self._zones,
                 "designs": self._designs,
                 "patterns": self._patterns,
@@ -464,7 +474,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             homegroup_id = homegroup.get("id")
             if not homegroup_id:
                 continue
-            devices.extend(await self.api.async_get_devices(homegroup_id))
+            devices.extend(
+                {**device, "homegroupId": homegroup_id}
+                for device in await self.api.async_get_devices(homegroup_id)
+            )
         return devices
 
     async def _async_refresh_catalog(self, device_ids: list[str]) -> None:
@@ -518,6 +531,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> dict[str, Any]:
         """Read state locally when possible, otherwise from the cloud."""
         client = self._local_client(device_id, info)
+        failed_lan = False
         if client:
             try:
                 state = await client.async_get_state()
@@ -526,6 +540,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "Gemstone %s: using local control at %s", device_id, client.host
                     )
                 self._local_ok[device_id] = True
+                self.recovery.recovered(device_id)
                 self._local_retry_after.pop(device_id, None)
                 try:
                     self._settings[device_id] = await client.async_get_settings()
@@ -533,6 +548,11 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     pass
                 return state
             except GemstoneLocalError as err:
+                if isinstance(client, GemstoneLocalApi):
+                    failed_lan = True
+                    self.recovery.failed(
+                        device_id, client.host, dt_util.utcnow().timestamp()
+                    )
                 if self._local_ok.get(device_id) is not False:
                     _LOGGER.warning(
                         "Gemstone %s: local control unavailable (%s)",
@@ -540,8 +560,10 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         err,
                     )
                 self._local_ok[device_id] = False
-                self._local_retry_after[device_id] = (
-                    dt_util.utcnow() + LOCAL_RETRY_BACKOFF
+                self._local_retry_after[device_id] = dt_util.utcnow() + (
+                    timedelta(minutes=1)
+                    if self._auto_recovery and failed_lan
+                    else LOCAL_RETRY_BACKOFF
                 )
 
         if self.api is None:
@@ -550,7 +572,91 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         if self._reauth_started:
             raise GemstoneAuthError("Gemstone account needs reauthentication")
-        return await self.api.async_get_state(device_id)
+        state = await self.api.async_get_state(device_id)
+        if failed_lan:
+            await self._async_recover_lan(device_id, client.host)
+        return state
+
+    async def _async_recover_lan(self, device_id: str, host: str) -> None:
+        """Recover only sustained LAN failures with a fresh healthy cloud route."""
+        if not self._auto_recovery or not self.recovery.due(
+            device_id,
+            dt_util.utcnow().timestamp(),
+            self._recovery_delay,
+            self._recovery_cooldown,
+        ):
+            return
+        try:
+            await self.async_soft_reboot(device_id, automatic_host=host)
+        except GemstoneError as err:
+            self._handle_cloud_error(err)
+            _LOGGER.warning(
+                "Gemstone %s: automatic LAN recovery failed (%s)", device_id, err
+            )
+
+    @serialized
+    async def async_soft_reboot(
+        self, device_id: str, *, automatic_host: str | None = None
+    ) -> None:
+        """Request one cloud soft reboot, including when the light is unavailable."""
+        if self.api is None:
+            raise GemstoneError(
+                "Soft reboot requires cloud access; local-only mode is enabled"
+            )
+        if self._reauth_started:
+            raise GemstoneAuthError("Gemstone account needs reauthentication")
+        if device_id not in self._device_ids:
+            raise GemstoneError("Unknown Gemstone controller")
+        now = dt_util.utcnow().timestamp()
+        if (
+            now
+            - self.recovery.history.get(device_id, {}).get(
+                "last_attempt", float("-inf")
+            )
+            < 120
+        ):
+            raise GemstoneError(
+                "A reboot was recently requested; wait at least two minutes"
+            )
+        try:
+            devices = await self._async_discover()
+            current = next((d for d in devices if d.get("id") == device_id), {})
+            if not current.get("homegroupId") or current.get("online") is not True:
+                raise GemstoneError(
+                    "Cloud did not confirm an online controller in this account"
+                )
+            hub = current.get("hub") or {}
+            if automatic_host is not None and (
+                hub.get("tcpEnabled") is not True
+                or hub.get("localIp") != automatic_host
+            ):
+                raise GemstoneError(
+                    "Automatic reboot skipped: LAN address or local-command setting changed"
+                )
+            await self.api.async_get_state(device_id)
+        except GemstoneAuthError as err:
+            self._handle_cloud_error(err)
+            raise
+        self.recovery.reserve(device_id, now)
+        try:
+            await self._async_save_cache()
+        except OSError as err:
+            raise GemstoneError(
+                "Could not persist reboot cooldown; no reboot sent"
+            ) from err
+        # A lost response is ambiguous: never automatically repeat this attempt.
+        self._local_ok[device_id] = False
+        self._local_retry_after[device_id] = dt_util.utcnow() + timedelta(seconds=90)
+        self._pending_states.pop(device_id, None)
+        try:
+            await self.api.async_soft_reboot(device_id, current["homegroupId"])
+        except GemstoneAuthError as err:
+            self._handle_cloud_error(err)
+            raise
+        _LOGGER.warning(
+            "Gemstone %s: cloud soft reboot requested; waiting for local service recovery",
+            device_id,
+        )
 
     def device_available(self, device_id: str) -> bool:
         """Use successful state reads, not the cloud's stale online flag."""
