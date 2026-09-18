@@ -93,7 +93,10 @@
           "enable_library": "Load Gemstone's official pattern library",
           "host_device_id": "Controller for address overrides",
           "local_only": "Disable all Gemstone cloud access",
-          "bluetooth_address": "Bluetooth address (optional; replaces LAN for the selected controller)"
+          "bluetooth_address": "Bluetooth address (optional; replaces LAN for the selected controller)",
+          "auto_recovery": "Automatically soft reboot after persistent LAN failure (requires cloud)",
+          "recovery_delay_minutes": "LAN failure duration before recovery (minutes)",
+          "recovery_cooldown_hours": "Minimum time between automatic reboot attempts (hours)"
         }
       }
     },
@@ -133,7 +136,7 @@
         },
         "content": {
           "name": "Content",
-          "description": "Pattern/design object, or a zone object with inclusive start and end pixel indices (0–4095)."
+          "description": "Pattern/design object, or a zone object with inclusive start and end pixel indices (0\u20134095)."
         },
         "folder": {
           "name": "Folder",
@@ -212,6 +215,16 @@
         "content": {
           "name": "Content",
           "description": "The pattern or design object to play."
+        }
+      }
+    },
+    "soft_reboot": {
+      "name": "Soft reboot controller",
+      "description": "Request a cloud soft reboot to recover a failed local service. Requires cloud access; the controller may be unreachable for about one minute.",
+      "fields": {
+        "controller": {
+          "name": "Controller",
+          "description": "Select the whole-controller light, even if it is unavailable."
         }
       }
     }

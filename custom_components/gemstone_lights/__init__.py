@@ -15,6 +15,7 @@ from homeassistant.helpers.storage import Store
 
 from .api import GemstoneApi
 from .const import (
+    CONF_AUTO_RECOVERY,
     CONF_BLUETOOTH_ADDRESS,
     CONF_EMAIL,
     CONF_ENABLE_LIBRARY,
@@ -25,6 +26,8 @@ from .const import (
     CONF_LOCAL_ONLY,
     CONF_PASSWORD,
     CONF_PREFER_LOCAL,
+    CONF_RECOVERY_COOLDOWN,
+    CONF_RECOVERY_DELAY,
     DOMAIN,
 )
 from .coordinator import GemstoneCoordinator
@@ -85,6 +88,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: GemstoneConfigEntry) -> 
         prefer_local=entry.options.get(CONF_PREFER_LOCAL, True),
         enable_local=entry.options.get(CONF_ENABLE_LOCAL, True),
         enable_library=entry.options.get(CONF_ENABLE_LIBRARY, True),
+        auto_recovery=entry.options.get(CONF_AUTO_RECOVERY, False),
+        recovery_delay_minutes=entry.options.get(CONF_RECOVERY_DELAY, 10),
+        recovery_cooldown_hours=entry.options.get(CONF_RECOVERY_COOLDOWN, 6),
     )
     await coordinator.async_config_entry_first_refresh()
 

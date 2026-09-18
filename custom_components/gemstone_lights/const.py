@@ -114,3 +114,8 @@ LOCAL_WRITE_GAP: Final = 1.5
 LOCAL_RETRY_BACKOFF: Final = timedelta(minutes=5)
 DATA_LOCAL: Final = "local"
 DATA_SETTINGS: Final = "settings"
+
+# Cloud-assisted LAN recovery is explicitly opt-in.
+CONF_AUTO_RECOVERY: Final = "auto_recovery"
+CONF_RECOVERY_DELAY: Final = "recovery_delay_minutes"
+CONF_RECOVERY_COOLDOWN: Final = "recovery_cooldown_hours"
