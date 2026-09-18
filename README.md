@@ -301,3 +301,9 @@ a private API that the vendor may change at any time. Use at your own risk.
 ## License
 
 MIT
+
+## Local-service recovery
+
+Cloud-capable entries can fall back to cloud control when the controller's LAN
+service fails. Version 1.8.0 adds a manual soft-reboot action and opt-in automatic
+recovery with persistent attempt limits. See [recovery configuration and limits](RECOVERY.md).

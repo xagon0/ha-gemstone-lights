@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.0
+
+- Add an administrator soft-reboot action using the app's captured cloud POST protocol.
+- Add opt-in recovery after sustained LAN failure, with fresh cloud checks, one attempt per outage, a persistent cooldown, and a reboot grace period.
+- Keep strict local-only mode free of cloud requests and preserve lighting content during recovery.
+- Expand functional tests for LAN refusal/timeouts, cloud fallback, reboot guards, failed responses, reload persistence and configuration.
+
+
 ## 1.7.1 — 2026-09-06
 
 - Decode native zone selections as explicit pixels and compressed inclusive runs,
