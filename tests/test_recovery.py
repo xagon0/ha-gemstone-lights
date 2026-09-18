@@ -251,8 +251,12 @@ async def test_failed_cooldown_storage_prevents_reboot(
     # Given HA storage cannot persist the attempt reservation.
     from homeassistant.helpers.storage import Store
 
+    original_save = Store.async_save
+
     async def failed_save(store, data):
-        raise OSError("Disk unavailable")
+        if store is loaded_entry._store:
+            raise OSError("Disk unavailable")
+        await original_save(store, data)
 
     monkeypatch.setattr(Store, "async_save", failed_save)
     # When the administrator requests a reboot.
