@@ -77,3 +77,13 @@ The integration resolves the homegroup through fresh discovery; it does not
 hard-code an owner's identifiers. Authentication and transport errors are
 surfaced, and the reboot request is not automatically retried even on an HTTP
 401/403. LAN readback, rather than HTTP acceptance alone, establishes recovery.
+
+## Physical validation
+
+On the owner's Hub2 firmware 1.1.5, the candidate HA action returned HTTP 200.
+An independent LAN monitor observed the local API become unreachable and then
+return after approximately 19 seconds. The entire reported playing state matched
+the pre-test state exactly; no lighting restoration write was needed. This
+verifies the manual cloud command and reboot cycle. The automatic failure policy
+is exercised through simulated external I/O, not by deliberately crashing the
+controller's HTTP service.
