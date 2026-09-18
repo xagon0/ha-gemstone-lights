@@ -34,6 +34,7 @@ class Vendor:
         local = re.compile(r"http://192\.0\.2\.\d+/.*")
         http.get(cloud, callback=self.cloud, repeat=True)
         http.put(cloud, callback=self.cloud, repeat=True)
+        http.post(cloud, callback=self.cloud, repeat=True)
         http.get(local, callback=self.local, repeat=True)
         http.post(local, callback=self.local, repeat=True)
 
@@ -45,6 +46,9 @@ class Vendor:
         if self.cloud_offline or path in self.failures:
             return CallbackResult(status=self.failures.get(path, 503))
         device = url.query.get("deviceOrGroupId", url.query.get("deviceId", "hub"))
+        if path == "/deviceControl/softReboot":
+            self.writes.append(("cloud", device, path, dict(url.query)))
+            return CallbackResult(payload={"data": None})
         if "json" in kwargs and kwargs["json"] is not None:
             body = deepcopy(kwargs["json"])
             self.writes.append(("cloud", device, path, body))
