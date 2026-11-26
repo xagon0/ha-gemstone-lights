@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.8.2 — 2026-11-26
+
+- Show the active pattern in an ordered native playlist on the Now playing
+  sensor. Its `playlist` attribute holds the playlist name, and the sensor
+  advances at each item boundary. Unknown ordering or incomplete timing falls
+  back to the playlist name.
+- When the Hub2 reports only a timer and a color, an account-linked entry can
+  read playlist details from the account while keeping light commands local.
+  A local-only entry shows `Timer active` and retains the reported color.
+- Detect a native playlist started from the Gemstone app after Home Assistant
+  set the controller to solid white, even when the Hub2 reports the same color.
+
 ## 1.8.1 — 2026-10-21
 
 - Require an explicit, unchecked-by-default opt-in before account mode enables
