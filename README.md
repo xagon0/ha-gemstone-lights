@@ -115,6 +115,15 @@ you want this behavior. The upgrade does not change the controller's current
 The Now playing sensor's `control` attribute reports `local` (LAN), `bluetooth`,
 or `cloud`. Bluetooth control does not require the HTTP local-command switch.
 
+For native playlists, **Now playing** shows the active pattern in an ordered
+sequence and exposes the playlist name in the `playlist` attribute. It uses
+the start time and each item's duration to advance between controller polls.
+For unrecognized ordering or incomplete timing it shows the playlist name.
+When a local Hub2 reports only a timer and a bare color, an account-linked
+entry checks Gemstone's playback metadata while keeping light control local.
+With local-only access the sensor shows **Timer active** and exposes the raw
+color in the `color` attribute.
+
 Known addresses, zones, patterns, designs and library content are saved locally.
 Local-only mode restores them without logging in or refreshing cloud catalogs.
 Failed local reads mark the controller unavailable and retry on the next poll;

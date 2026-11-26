@@ -13,6 +13,7 @@ class Vendor:
     def __init__(self, http):
         self.devices = [{"id": "hub", "name": "House", "online": True}]
         self.states = {"hub": {"onState": True, "color": 255}}
+        self.local_states = {}
         self.zones = {
             "hub": [
                 {"id": "front", "name": "Front", "lights": [10, 11, 12]},
@@ -122,6 +123,8 @@ class Vendor:
             else "hubSettings"
         )
         data = (
-            self.states[device] if key == "currentlyPlaying" else {"firmware": "1.1.5"}
+            self.local_states.get(device, self.states[device])
+            if key == "currentlyPlaying"
+            else {"firmware": "1.1.5"}
         )
         return CallbackResult(payload={"state": {"reported": {key: deepcopy(data)}}})

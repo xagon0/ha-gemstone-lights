@@ -49,6 +49,7 @@ from .const import (
 )
 from .geometry import decode_lights
 from .local_api import GemstoneLocalApi, GemstoneLocalError
+from .playback import timer_has_no_content
 from .recovery import RecoveryPolicy
 from .state import encode_cloud_design, same_content, scale_color
 from .storage import GemstoneStore
@@ -261,6 +262,7 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         records[device_id] = {
             **records.get(device_id, {}),
             DATA_STATE: deepcopy(state),
+            "timer_playlist": None,
             "available": True,
         }
         data[DATA_DEVICES] = records
@@ -303,6 +305,15 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             .get(DATA_DEVICES, {})
             .get(device_id, {})
             .get(DATA_STATE, {})
+        )
+
+    def playing_playlist(self, device_id: str) -> dict[str, Any]:
+        """Return playlist metadata for the sensor, separate from command state."""
+        record = (self.data or {}).get(DATA_DEVICES, {}).get(device_id, {})
+        return (
+            record.get(DATA_STATE, {}).get("playlist")
+            or record.get("timer_playlist")
+            or {}
         )
 
     def designs(self, device_id: str) -> list[dict[str, Any]]:
@@ -753,6 +764,28 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         record = (self.data or {}).get(DATA_DEVICES, {}).get(device_id, {})
         return record.get("available", bool(record.get(DATA_STATE)))
 
+    async def _async_timer_playlist(
+        self, device_id: str, state: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Look up ambiguous local timer playback using an already linked account."""
+        if not (
+            self.is_local(device_id)
+            and self.api
+            and self._cloud_available
+            and not self._reauth_started
+            and timer_has_no_content(state)
+        ):
+            return None
+        try:
+            remote = await self.api.async_get_state(device_id)
+        except GemstoneError as err:
+            self._handle_cloud_error(err)
+            _LOGGER.debug("Playlist metadata unavailable for %s: %s", device_id, err)
+            return None
+        if remote.get("onState"):
+            return remote.get("playlist")
+        return None
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch controller state (and the catalog when due)."""
         try:
@@ -846,6 +879,9 @@ class GemstoneCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 result[DATA_DEVICES][device_id] = {
                     DATA_INFO: device,
                     DATA_STATE: state,
+                    "timer_playlist": await self._async_timer_playlist(device_id, state)
+                    if available
+                    else None,
                     "available": available,
                     DATA_LOCAL: self.is_local(device_id),
                     DATA_SETTINGS: self._settings.get(device_id, {}),

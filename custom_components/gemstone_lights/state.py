@@ -38,6 +38,9 @@ def _content(state: dict[str, Any]) -> Any:
             return {mode: _without_metadata(state[mode])}
     if color_b := state.get("colorB"):
         return {"color": scale_color(color_b["value"], color_b.get("brightness", 255))}
+    if timer := state.get("timerId") or state.get("timer"):
+        # A timer can report the previous solid color while a playlist is running.
+        return {"timer": timer, "color": state.get("color")}
     return {"color": state.get("color")}
 
 
